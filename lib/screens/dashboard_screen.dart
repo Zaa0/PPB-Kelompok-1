@@ -59,55 +59,103 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640),
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              const Text(
-                'Ruang Diskusi',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const Text(
-                'Gabung room mata kuliah, organisasi, atau topik anonim.',
-                style: TextStyle(color: Colors.black54),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                onChanged: (v) => setState(() => _query = v),
-                decoration: const InputDecoration(
-                  hintText: 'Cari room / kode undangan...',
-                  prefixIcon: Icon(Icons.search),
-                ),
-              ),
-              const SizedBox(height: 12),
-              for (final room in rooms)
-                RoomCard(
-                  room: room,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ChatScreen(room: room),
+      // Responsif ala Solahudin (6a5ccee): breakpoint mobile < 600,
+      // web/desktop >= 900 tampil 2 kolom
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final bool isMobile = constraints.maxWidth < 600;
+          final int kolom = constraints.maxWidth >= 900 ? 2 : 1;
+          final double padding = isMobile ? 16 : 24;
+
+          Widget kartu(Room room) => RoomCard(
+                room: room,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ChatScreen(room: room),
+                    ),
+                  );
+                },
+              );
+
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 900),
+              child: CustomScrollView(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.all(padding),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Ruang Diskusi',
+                            style: TextStyle(
+                              fontSize: isMobile ? 22 : 26,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const Text(
+                            'Gabung room mata kuliah, organisasi, atau topik anonim.',
+                            style: TextStyle(color: Colors.black54),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            onChanged: (v) =>
+                                setState(() => _query = v),
+                            decoration: const InputDecoration(
+                              hintText: 'Cari room / kode undangan...',
+                              prefixIcon: Icon(Icons.search),
+                            ),
+                          ),
+                        ],
                       ),
-                    );
-                  },
-                ),
-              if (rooms.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    'Room tidak ditemukan. Coba kata kunci lain.',
-                    textAlign: TextAlign.center,
+                    ),
                   ),
-                ),
-            ],
-          ),
-        ),
+                  if (kolom == 1)
+                    SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, i) => Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: padding,
+                            vertical: 4,
+                          ),
+                          child: kartu(rooms[i]),
+                        ),
+                        childCount: rooms.length,
+                      ),
+                    )
+                  else
+                    SliverGrid(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        mainAxisExtent: 124,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                      ),
+                      delegate: SliverChildBuilderDelegate(
+                        (context, i) => kartu(rooms[i]),
+                        childCount: rooms.length,
+                      ),
+                    ),
+                  if (rooms.isEmpty)
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text(
+                          'Room tidak ditemukan. Coba kata kunci lain.',
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _buatRoom(context),
