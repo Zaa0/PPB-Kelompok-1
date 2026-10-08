@@ -11,6 +11,9 @@ import 'package:project_pertama/main.dart';
 void main() {
   testWidgets('UniTalk app smoke test', (WidgetTester tester) async {
     await tester.pumpWidget(const UniTalkApp());
+
     expect(find.text('UniTalk'), findsWidgets);
+    expect(find.text('Masuk'), findsOneWidget);
+  });
   });
 }
