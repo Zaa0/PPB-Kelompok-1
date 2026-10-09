@@ -13,7 +13,6 @@ void main() {
     await tester.pumpWidget(const UniTalkApp());
 
     expect(find.text('UniTalk'), findsWidgets);
-    expect(find.text('Masuk'), findsOneWidget);
-  });
+    expect(find.text('Masuk sebagai Guest'), findsOneWidget);
   });
 }

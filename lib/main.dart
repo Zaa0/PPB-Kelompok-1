@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'screens/welcome_screen.dart';
+import 'screens/welcome_screen.dart' hide LoginScreen;
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/dashboard_screen.dart';
@@ -12,10 +12,6 @@ void main() {
 class UniTalkApp extends StatelessWidget {
   const UniTalkApp({super.key});
 
-  @override
-  Widget build(BuildContext context) {
-    final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF2563EB));
-    return MaterialApp(
   @override
   Widget build(BuildContext context) {
     final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF2563EB));

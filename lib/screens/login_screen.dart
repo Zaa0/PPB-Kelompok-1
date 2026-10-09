@@ -67,7 +67,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'RuangKampus',
+                  'UniTalk',
                   style: TextStyle(
                     fontSize: 26,
                     fontWeight: FontWeight.bold,

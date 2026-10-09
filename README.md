@@ -1,4 +1,4 @@
-# RuangKampus (project_pertama)
+# UniTalk (project_pertama)
 
 Aplikasi mobile diskusi dan berbagi informasi anonim bagi mahasiswa, dibuat dengan Flutter.
 Tugas kelompok mata kuliah Pemrograman Perangkat Mobile, Teknik Informatika UMRAH.
