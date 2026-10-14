@@ -199,14 +199,16 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
+  final _namaCtrl = TextEditingController();
+  bool _isRegister = false;
   bool _obscurePass = true;
   bool _isLoading = false;
 
   void _doLogin() async {
-    if (_emailCtrl.text.isEmpty || _passCtrl.text.isEmpty) {
+    if (_emailCtrl.text.isEmpty || _passCtrl.text.isEmpty || (_isRegister && _namaCtrl.text.trim().isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Email dan password tidak boleh kosong'),
+          content: const Text('Lengkapi nama, email, dan password'),
           backgroundColor: const Color(0xFFEF4444),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -218,7 +220,7 @@ class _LoginScreenState extends State<LoginScreen> {
     await Future.delayed(const Duration(seconds: 2)); // Simulasi loading
     if (!mounted) return;
     setState(() => _isLoading = false);
-    final name = _emailCtrl.text.split('@').first;
+    final name = _isRegister ? _namaCtrl.text.trim() : _emailCtrl.text.split('@').first;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => HomeScreen(isGuest: false, userName: name)),
@@ -264,6 +266,16 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 6),
             Text('Masuk untuk bergabung dengan diskusi mahasiswa', style: TextStyle(fontSize: 14, color: Colors.grey.shade500)),
             const SizedBox(height: 32),
+            // Nama field (khusus registrasi)
+            if (_isRegister) ...[
+              _buildLabel('Nama Tampil'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _namaCtrl,
+                decoration: _inputDecoration('cth: Budi IF', Icons.person_outline),
+              ),
+              const SizedBox(height: 20),
+            ],
             // Email field
             _buildLabel('Email Kampus'),
             const SizedBox(height: 8),
@@ -315,9 +327,17 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 child: _isLoading
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Text('Masuk', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    : Text(_isRegister ? 'Daftar' : 'Masuk', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
             ),
+            TextButton(
+              onPressed: () => setState(() => _isRegister = !_isRegister),
+              child: Text(
+                _isRegister ? 'Sudah punya akun? Masuk' : 'Belum punya akun? Daftar',
+                style: const TextStyle(color: Color(0xFF1E3A8A), fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(height: 8),
             const SizedBox(height: 24),
             // Divider
             Row(children: [
@@ -382,6 +402,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _emailCtrl.dispose();
     _passCtrl.dispose();
+    _namaCtrl.dispose();
     super.dispose();
   }
 }

@@ -16,6 +16,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   late TabController _tabController;
   int _bottomIndex = 0;
   String _searchQuery = '';
+  late final List<ChatRoom> _rooms = List.from(DummyData.rooms);
+  final Set<String> _myRoomIds = {}; // room yang saya buat = saya adminnya
+  late String _displayName = widget.userName;
 
   @override
   void initState() {
@@ -30,9 +33,133 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   List<ChatRoom> _filteredRooms(String category) {
-    final rooms = DummyData.getByCategory(category);
+    final rooms = _rooms.where((r) => r.category == category).toList();
     if (_searchQuery.isEmpty) return rooms;
     return rooms.where((r) => r.name.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+  }
+
+  // ── Buat room baru (khusus akun terdaftar) ──
+  void _createDialog() {
+    final namaCtrl = TextEditingController();
+    final deskCtrl = TextEditingController();
+    String kategori = 'matkul';
+    showDialog(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          title: const Text('Buat Room Baru'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: namaCtrl, decoration: const InputDecoration(labelText: 'Nama room', border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                TextField(controller: deskCtrl, decoration: const InputDecoration(labelText: 'Deskripsi', border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  children: ['matkul', 'organisasi', 'topik'].map((k) {
+                    return ChoiceChip(
+                      label: Text(k),
+                      selected: kategori == k,
+                      onSelected: (_) => setDlg(() => kategori = k),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+            ElevatedButton(
+              onPressed: () {
+                if (namaCtrl.text.trim().isEmpty) return;
+                final id = DateTime.now().millisecondsSinceEpoch.toString();
+                final room = ChatRoom(
+                  id: id,
+                  name: namaCtrl.text.trim(),
+                  category: kategori,
+                  lastMessage: 'Room baru dibuat',
+                  lastTime: 'Baru saja',
+                  unreadCount: 0,
+                  memberCount: 1,
+                  icon: kategori == 'matkul' ? Icons.book_outlined : kategori == 'organisasi' ? Icons.groups_outlined : Icons.topic_outlined,
+                  color: const Color(0xFF3B82F6),
+                  inviteCode: 'UT-${100 + _rooms.length + 1}',
+                  allowGuest: kategori == 'topik',
+                );
+                setState(() {
+                  _rooms.add(room);
+                  _myRoomIds.add(id);
+                });
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Room dibuat! Kode undangan: ${room.inviteCode}')),
+                );
+              },
+              child: const Text('Buat'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Gabung room pakai kode undangan ──
+  void _joinDialog() {
+    final kodeCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Gabung dengan Kode'),
+        content: TextField(
+          controller: kodeCtrl,
+          decoration: const InputDecoration(labelText: 'cth: UT-101', border: OutlineInputBorder(), prefixIcon: Icon(Icons.vpn_key_outlined)),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+          ElevatedButton(
+            onPressed: () {
+              final kode = kodeCtrl.text.trim().toUpperCase();
+              final found = _rooms.where((r) => r.inviteCode.toUpperCase() == kode).toList();
+              Navigator.pop(ctx);
+              if (found.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Kode tidak ditemukan')),
+                );
+                return;
+              }
+              _openChat(found.first);
+            },
+            child: const Text('Gabung'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Buka chat + tangani hasil hapus room (admin) ──
+  Future<void> _openChat(ChatRoom room) async {
+    final hapus = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatRoomScreen(
+          room: room,
+          isGuest: widget.isGuest,
+          userName: _displayName,
+          isAdmin: _myRoomIds.contains(room.id),
+        ),
+      ),
+    );
+    if (hapus == true && mounted) {
+      setState(() {
+        _rooms.removeWhere((r) => r.id == room.id);
+        _myRoomIds.remove(room.id);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Room dihapus')),
+      );
+    }
   }
 
   @override
@@ -42,6 +169,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       body: SafeArea(
         child: _bottomIndex == 0 ? _buildHomeBody() : _buildProfileBody(),
       ),
+      floatingActionButton: widget.isGuest
+          ? FloatingActionButton.extended(
+              onPressed: _joinDialog,
+              icon: const Icon(Icons.vpn_key_outlined),
+              label: const Text('Gabung Kode'),
+            )
+          : FloatingActionButton.extended(
+              onPressed: _createDialog,
+              icon: const Icon(Icons.add),
+              label: const Text('Buat Room'),
+            ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _bottomIndex,
         onDestinationSelected: (i) => setState(() => _bottomIndex = i),
@@ -96,7 +234,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Halo, ${widget.userName}! 👋',
+                          'Halo, $_displayName! 👋',
                           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
                         ),
                         Text(
@@ -105,6 +243,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         ),
                       ],
                     ),
+                  ),
+                  IconButton(
+                    tooltip: 'Gabung dengan kode',
+                    icon: const Icon(Icons.vpn_key_outlined, color: Colors.white),
+                    onPressed: _joinDialog,
                   ),
                   if (widget.isGuest)
                     Container(
@@ -216,12 +359,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       itemBuilder: (context, i) => _RoomCard(
         room: rooms[i],
         isGuest: widget.isGuest,
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ChatRoomScreen(room: rooms[i], isGuest: widget.isGuest, userName: widget.userName),
-          ),
-        ),
+        onTap: () => _openChat(rooms[i]),
       ),
     );
   }
@@ -254,15 +392,46 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   ),
                   child: Center(
                     child: Text(
-                      widget.userName.isNotEmpty ? widget.userName[0].toUpperCase() : 'G',
+                      _displayName.isNotEmpty ? _displayName[0].toUpperCase() : 'G',
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 30),
                     ),
                   ),
                 ),
                 const SizedBox(height: 12),
-                Text(
-                  widget.userName,
-                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      _displayName,
+                      style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                    if (!widget.isGuest)
+                      IconButton(
+                        tooltip: 'Ubah nama',
+                        icon: const Icon(Icons.edit_outlined, color: Colors.white70, size: 18),
+                        onPressed: () {
+                          final ctrl = TextEditingController(text: _displayName);
+                          showDialog(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('Ubah Nama Profil'),
+                              content: TextField(controller: ctrl, decoration: const InputDecoration(labelText: 'Nama tampil', border: OutlineInputBorder())),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+                                ElevatedButton(
+                                  onPressed: () {
+                                    if (ctrl.text.trim().isEmpty) return;
+                                    setState(() => _displayName = ctrl.text.trim());
+                                    Navigator.pop(ctx);
+                                  },
+                                  child: const Text('Simpan'),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 4),
                 Container(

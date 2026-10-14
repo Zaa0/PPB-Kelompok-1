@@ -5,8 +5,9 @@ class ChatRoomScreen extends StatefulWidget {
   final ChatRoom room;
   final bool isGuest;
   final String userName;
+  final bool isAdmin; // true jika user adalah pembuat room (mock)
 
-  const ChatRoomScreen({super.key, required this.room, required this.isGuest, required this.userName});
+  const ChatRoomScreen({super.key, required this.room, required this.isGuest, required this.userName, this.isAdmin = false});
 
   @override
   State<ChatRoomScreen> createState() => _ChatRoomScreenState();
@@ -16,6 +17,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final TextEditingController _msgCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
   final List<ChatMessage> _messages = List.from(DummyData.dummyMessages);
+  late final List<String> _members = ['Budi', 'Sari', 'Rina', 'Deni'];
+  final Set<String> _kicked = {};
 
   void _sendMessage() {
     final text = _msgCtrl.text.trim();
@@ -103,19 +106,29 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     icon: const Icon(Icons.more_vert, color: Colors.white),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     onSelected: (val) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Fitur "$val" belum tersedia'),
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                      );
+                      if (val == 'Anggota') {
+                        _memberSheet();
+                      } else if (val == 'Keluar') {
+                        Navigator.pop(context);
+                      } else if (val == 'HapusRoom') {
+                        _confirmHapusRoom();
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Fitur "$val" belum tersedia'),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        );
+                      }
                     },
                     itemBuilder: (_) => [
                       const PopupMenuItem(value: 'Anggota', child: Text('Lihat Anggota')),
                       const PopupMenuItem(value: 'Cari', child: Text('Cari Pesan')),
                       const PopupMenuItem(value: 'Mute', child: Text('Mute Notifikasi')),
                       const PopupMenuItem(value: 'Keluar', child: Text('Keluar dari Room', style: TextStyle(color: Colors.red))),
+                      if (widget.isAdmin)
+                        const PopupMenuItem(value: 'HapusRoom', child: Text('Hapus Room', style: TextStyle(color: Colors.red))),
                     ],
                   ),
                 ],
@@ -164,17 +177,109 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   children: [
                     if (showDate)
                       _DateDivider(date: 'Hari ini'),
-                    _MessageBubble(message: msg),
+                    GestureDetector(
+                      onLongPress: (msg.isMe || widget.isAdmin) ? () => _confirmHapus(msg) : null,
+                      child: _MessageBubble(message: msg),
+                    ),
                   ],
                 );
               },
             ),
           ),
           // ── Input Bar ─────────────────────────────────────
-          if (!widget.isGuest)
+          // Guest hanya bisa kirim di room yang mengizinkan
+          if (!widget.isGuest || widget.room.allowGuest)
             _buildInputBar()
           else
             _buildGuestBar(),
+        ],
+      ),
+    );
+  }
+
+  // ── Admin: hapus pesan (milik sendiri / semua jika admin) ──
+  void _confirmHapus(ChatMessage msg) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Hapus pesan?'),
+        content: Text('"${msg.text}" akan dihapus untuk semua anggota (mock).'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () {
+              setState(() => _messages.removeWhere((m) => m.id == msg.id));
+              Navigator.pop(ctx);
+            },
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Admin: lihat + keluarkan anggota (mock lokal) ──
+  void _memberSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          final aktif = _members.where((m) => !_kicked.contains(m)).toList();
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Anggota (${aktif.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                const SizedBox(height: 8),
+                for (final m in aktif)
+                  ListTile(
+                    leading: CircleAvatar(child: Text(m[0])),
+                    title: Text(m),
+                    trailing: widget.isAdmin
+                        ? TextButton(
+                            onPressed: () {
+                              setSheet(() => _kicked.add(m));
+                              setState(() {});
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$m dikeluarkan (mock)')));
+                            },
+                            child: const Text('Keluarkan', style: TextStyle(color: Colors.red)),
+                          )
+                        : null,
+                  ),
+                if (!widget.isAdmin)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text('Hanya admin room yang bisa mengeluarkan anggota.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ── Admin: hapus room (kembali + beri tahu home) ──
+  void _confirmHapusRoom() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Hapus room?'),
+        content: Text('"${widget.room.name}" akan dihapus (mock).'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.pop(context, true); // true = home ikut hapus
+            },
+            child: const Text('Hapus'),
+          ),
         ],
       ),
     );

@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
-import 'screens/welcome_screen.dart' hide LoginScreen;
+import 'screens/welcome_screen.dart';
 import 'screens/home_screen.dart';
-import 'screens/login_screen.dart';
-import 'screens/dashboard_screen.dart';
-import 'screens/profile_screen.dart';
 
 void main() {
   runApp(const UniTalkApp());
@@ -58,42 +55,8 @@ class UniTalkApp extends StatelessWidget {
       initialRoute: '/',
       routes: {
         '/': (context) => const WelcomeScreen(),
-        '/login': (context) => const LoginScreen(),
         '/home': (context) => const HomeScreen(isGuest: false, userName: 'User'),
-        '/shell': (context) => const MainShell(nama: 'User'),
       },
-    );
-  }
-}
-
-// Shell dengan BottomNavigationBar: Dashboard + Profil
-// Dipakai setelah login untuk demo layout navigasi bawah
-class MainShell extends StatefulWidget {
-  final String nama;
-
-  const MainShell({super.key, required this.nama});
-
-  @override
-  State<MainShell> createState() => _MainShellState();
-}
-
-class _MainShellState extends State<MainShell> {
-  int _index = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: _index == 0
-          ? DashboardScreen(nama: widget.nama)
-          : const ProfileScreen(),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _index,
-        onTap: (i) => setState(() => _index = i),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.forum), label: 'Room'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profil'),
-        ],
-      ),
     );
   }
 }

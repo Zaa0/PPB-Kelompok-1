@@ -31,6 +31,8 @@ class ChatRoom {
   final int memberCount;
   final IconData icon;
   final Color color;
+  final String inviteCode; // kode undangan unik per room
+  final bool allowGuest; // true = guest boleh kirim pesan
 
   const ChatRoom({
     required this.id,
@@ -42,6 +44,8 @@ class ChatRoom {
     required this.memberCount,
     required this.icon,
     required this.color,
+    this.inviteCode = '',
+    this.allowGuest = false,
   });
 }
 
@@ -74,60 +78,70 @@ class DummyData {
       lastMessage: 'Ada yang sudah ngerjain tugas Flutter?',
       lastTime: '10:30', unreadCount: 5, memberCount: 48,
       icon: Icons.phone_android, color: Color(0xFF3B82F6),
+      inviteCode: 'UT-101',
     ),
     ChatRoom(
       id: '2', name: 'Basis Data', category: 'matkul',
       lastMessage: 'Tugas normalisasi dikumpul besok ya',
       lastTime: '09:15', unreadCount: 2, memberCount: 52,
       icon: Icons.storage, color: Color(0xFF8B5CF6),
+      inviteCode: 'UT-102',
     ),
     ChatRoom(
       id: '3', name: 'Algoritma & Pemrograman', category: 'matkul',
       lastMessage: 'Soal nomor 3 gimana cara ngerjainnya?',
       lastTime: 'Kemarin', unreadCount: 0, memberCount: 45,
       icon: Icons.code, color: Color(0xFF10B981),
+      inviteCode: 'UT-103',
     ),
     ChatRoom(
       id: '4', name: 'Kalkulus', category: 'matkul',
       lastMessage: 'Integral trigonometri yang susah banget',
       lastTime: 'Kemarin', unreadCount: 1, memberCount: 60,
       icon: Icons.calculate, color: Color(0xFFF59E0B),
+      inviteCode: 'UT-104',
     ),
     ChatRoom(
       id: '5', name: 'BEM Fakultas', category: 'organisasi',
       lastMessage: 'Rapat besok jam 14.00 di aula ya',
       lastTime: '11:00', unreadCount: 8, memberCount: 30,
       icon: Icons.groups, color: Color(0xFFEF4444),
+      inviteCode: 'UT-201',
     ),
     ChatRoom(
       id: '6', name: 'Himpunan Mahasiswa IF', category: 'organisasi',
       lastMessage: 'Pendaftaran anggota baru dibuka!',
       lastTime: '08:45', unreadCount: 3, memberCount: 120,
       icon: Icons.school, color: Color(0xFF06B6D4),
+      inviteCode: 'UT-202',
     ),
     ChatRoom(
       id: '7', name: 'UKM Robotika', category: 'organisasi',
       lastMessage: 'Workshop Arduino minggu depan',
       lastTime: 'Kemarin', unreadCount: 0, memberCount: 25,
       icon: Icons.precision_manufacturing, color: Color(0xFFF59E0B),
+      inviteCode: 'UT-203',
     ),
     ChatRoom(
       id: '8', name: 'Tips & Trik Kuliah', category: 'topik',
       lastMessage: 'Share cara belajar efektif dong!',
       lastTime: '10:00', unreadCount: 12, memberCount: 200,
       icon: Icons.lightbulb_outline, color: Color(0xFF8B5CF6),
+      inviteCode: 'UT-301', allowGuest: true,
     ),
     ChatRoom(
       id: '9', name: 'Loker & Magang', category: 'topik',
       lastMessage: 'Ada lowongan magang di startup tech nih',
       lastTime: '09:30', unreadCount: 6, memberCount: 180,
       icon: Icons.work_outline, color: Color(0xFF10B981),
+      inviteCode: 'UT-302', allowGuest: true,
     ),
     ChatRoom(
       id: '10', name: 'Sharing Tugas Akhir', category: 'topik',
       lastMessage: 'Judul TA yang bagus itu gimana?',
       lastTime: 'Kemarin', unreadCount: 0, memberCount: 95,
       icon: Icons.article_outlined, color: Color(0xFF3B82F6),
+      inviteCode: 'UT-303',
     ),
   ];
 
