@@ -103,10 +103,24 @@ class AppState extends ChangeNotifier {
       _currentUserId = '${me.userId}';
       _offline = false;
       await refreshRooms(silent: true);
-    } on ApiException {
-      _offline = true;
-      notifyListeners();
+    } on ApiException catch (e) {
+      _handleApiError(e);
     }
+  }
+
+  // Token mati (401) = paksa keluar dari sesi; selain itu tandai offline.
+  void _handleApiError(ApiException e) {
+    if (e.statusCode == 401) {
+      _token = null;
+      _hasSession = false;
+      _isGuest = false;
+      _displayName = 'User';
+      _currentUserId = 'me';
+      _saveSession(clear: true);
+    } else {
+      _offline = true;
+    }
+    notifyListeners();
   }
 
   // ── Auth via API (dipakai layar login saat online) ──
@@ -200,9 +214,8 @@ class AppState extends ChangeNotifier {
   Future<void> _updateNameOnServer(String name) async {
     try {
       await _api!.updateName(_token!, name);
-    } on ApiException {
-      _offline = true;
-      notifyListeners();
+    } on ApiException catch (e) {
+      _handleApiError(e);
     }
   }
 
@@ -230,8 +243,8 @@ class AppState extends ChangeNotifier {
       _joinedIds = {for (final r in list) if (r.isMember) r.room.id};
       _offline = false;
       _saveRooms();
-    } on ApiException {
-      _offline = true;
+    } on ApiException catch (e) {
+      _handleApiError(e);
     } finally {
       _loadingRooms = false;
       notifyListeners();
@@ -361,9 +374,8 @@ class AppState extends ChangeNotifier {
       _saveMessages(room.id);
       _offline = false;
       notifyListeners();
-    } on ApiException {
-      _offline = true;
-      notifyListeners();
+    } on ApiException catch (e) {
+      _handleApiError(e);
     }
   }
 
@@ -382,10 +394,11 @@ class AppState extends ChangeNotifier {
         _offline = false;
         notifyListeners();
         return;
-      } on ApiException {
-        // Kirim gagal (server mati) → simpan lokal saja + tandai offline.
-        _offline = true;
-        notifyListeners();
+      } on ApiException catch (e) {
+        // Kirim gagal → kalau token mati, sesi diakhiri;
+        // kalau server mati, simpan lokal saja + tandai offline.
+        _handleApiError(e);
+        if (e.statusCode == 401) return;
       }
     }
 
@@ -409,8 +422,8 @@ class AppState extends ChangeNotifier {
     if (_useApi) {
       try {
         await _api!.deleteMessage(_token!, message.id);
-      } on ApiException {
-        _offline = true;
+      } on ApiException catch (e) {
+        _handleApiError(e);
       }
     }
     _messagesByRoom[room.id]?.removeWhere((m) => m.id == message.id);
@@ -450,9 +463,8 @@ class AppState extends ChangeNotifier {
       _trackLastMessageId(roomId, fresh);
       _saveMessages(roomId);
       notifyListeners();
-    } on ApiException {
-      _offline = true;
-      notifyListeners();
+    } on ApiException catch (e) {
+      _handleApiError(e);
     }
   }
 
@@ -501,9 +513,8 @@ class AppState extends ChangeNotifier {
       _membersByRoom[room.id] = await _api!.fetchMembers(_token!, room.id);
       _offline = false;
       notifyListeners();
-    } on ApiException {
-      _offline = true;
-      notifyListeners();
+    } on ApiException catch (e) {
+      _handleApiError(e);
     }
   }
 

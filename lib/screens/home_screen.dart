@@ -212,6 +212,10 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
+    // Kalau sesi API mati (token 401 dipaksa logout), kembali ke welcome.
+    if (app.isOnline && !app.hasSession) {
+      return const WelcomeScreen();
+    }
     final wide = _isWide;
     return Scaffold(
       backgroundColor: const Color(0xFFF0F6FF),
