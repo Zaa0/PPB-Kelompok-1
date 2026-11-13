@@ -10,6 +10,10 @@ class WelcomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Sesi yang masih tersimpan langsung dilanjutkan ke beranda.
+    if (context.watch<AppState>().hasSession) {
+      return const HomeScreen();
+    }
     return Scaffold(
       backgroundColor: const Color(0xFF1E3A8A),
       body: SafeArea(
@@ -314,13 +318,21 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     setState(() => _isLoading = true);
+    final app = context.read<AppState>();
+    final email = _emailCtrl.text.trim();
     await Future.delayed(const Duration(seconds: 2)); // Simulasi loading
     if (!mounted) return;
     setState(() => _isLoading = false);
-    final name = _isRegister
-        ? _namaCtrl.text.trim()
-        : _emailCtrl.text.split('@').first;
-    context.read<AppState>().startSession(isGuest: false, userName: name);
+    String name;
+    if (_isRegister) {
+      name = _namaCtrl.text.trim();
+      await app.saveAccount(name: name, email: email);
+    } else {
+      // Email yang pernah daftar menampilkan nama akunnya.
+      name = await app.lookupAccountName(email) ?? email.split('@').first;
+    }
+    if (!mounted) return;
+    app.startSession(isGuest: false, userName: name);
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const HomeScreen()),

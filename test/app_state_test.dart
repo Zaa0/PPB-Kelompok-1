@@ -1,6 +1,68 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:project_pertama/data/app_repository.dart';
 import 'package:project_pertama/models/app_data.dart';
 import 'package:project_pertama/state/app_state.dart';
+
+// Repository tiruan di memori, buat ngetes alur persistensi tanpa plugin.
+class _MemoryRepo implements AppRepository {
+  Map<String, dynamic>? session;
+  List<Map<String, dynamic>>? rooms;
+  final Map<String, List<Map<String, dynamic>>> messages = {};
+  final Map<String, String> accounts = {};
+
+  @override
+  Future<void> init() async {}
+
+  @override
+  Future<SessionData?> loadSession() async {
+    final s = session;
+    if (s == null) return null;
+    return SessionData(
+      isGuest: s['isGuest'] as bool,
+      displayName: s['displayName'] as String,
+    );
+  }
+
+  @override
+  Future<void> saveSession(SessionData s) async {
+    session = {'isGuest': s.isGuest, 'displayName': s.displayName};
+  }
+
+  @override
+  Future<void> clearSession() async {
+    session = null;
+  }
+
+  @override
+  Future<String?> findAccountNameByEmail(String email) async =>
+      accounts[email.toLowerCase()];
+
+  @override
+  Future<void> saveAccount({
+    required String name,
+    required String email,
+  }) async {
+    accounts[email.toLowerCase()] = name;
+  }
+
+  @override
+  Future<List<ChatRoom>?> loadRooms() async =>
+      rooms?.map(ChatRoom.fromJson).toList();
+
+  @override
+  Future<void> saveRooms(List<ChatRoom> list) async {
+    rooms = list.map((r) => r.toJson()).toList();
+  }
+
+  @override
+  Future<List<ChatMessage>?> loadMessages(String roomId) async =>
+      messages[roomId]?.map(ChatMessage.fromJson).toList();
+
+  @override
+  Future<void> saveMessages(String roomId, List<ChatMessage> list) async {
+    messages[roomId] = list.map((m) => m.toJson()).toList();
+  }
+}
 
 // Unit test logika inti AppState: kode undangan, aturan guest/admin,
 // membership, kirim pesan, dan roundtrip JSON model.
@@ -106,6 +168,83 @@ void main() {
       expect(msg2.createdAt.hour, 8);
       expect(msg2.senderInitial, 'Y');
       expect(msg2.isSentBy('me'), isTrue);
+    });
+  });
+
+  group('AppState persistensi', () {
+    test('restore memuat room, chat, dan sesi tersimpan', () async {
+      final repo = _MemoryRepo();
+      repo.rooms = [
+        const ChatRoom(
+          id: 'x',
+          name: 'Room Awet',
+          category: 'matkul',
+          lastMessage: 'halo',
+          lastTime: '09:00',
+          unreadCount: 0,
+          memberIds: ['me'],
+          createdById: 'me',
+          inviteCode: 'UT-777',
+        ).toJson(),
+      ];
+      repo.messages['x'] = [
+        ChatMessage(
+          id: 'm1',
+          senderId: 'me',
+          senderName: 'Yuza',
+          text: 'pesan lama',
+          createdAt: DateTime(2026, 1, 1, 9),
+        ).toJson(),
+      ];
+
+      final app = AppState(repository: repo);
+      await app.restore();
+
+      final room = app.rooms.firstWhere((r) => r.id == 'x');
+      expect(room.name, 'Room Awet');
+      expect(app.isAdmin(room), isTrue); // createdById = 'me'
+      expect(app.messagesFor(room).first.text, 'pesan lama');
+    });
+
+    test('aksi state ikut tersimpan ke repository', () async {
+      final repo = _MemoryRepo();
+      final app = AppState(repository: repo);
+      app.startSession(isGuest: false, userName: 'Yuza');
+      app.createRoom(name: 'Baru');
+      app.sendMessage(DummyData.rooms.first, 'cek simpan');
+      await Future<void>.delayed(Duration.zero); // tunggu simpan selesai
+
+      expect(repo.rooms!.length, DummyData.rooms.length + 1);
+      expect(repo.session, {
+        'isGuest': false,
+        'displayName': 'Yuza',
+      });
+      expect(repo.messages['1']!.last['text'], 'cek simpan');
+    });
+
+    test('logout menghapus sesi tapi data room tetap ada', () async {
+      final repo = _MemoryRepo();
+      final app = AppState(repository: repo);
+      app.startSession(isGuest: false, userName: 'Yuza');
+      app.createRoom(name: 'Roomku');
+      await Future<void>.delayed(Duration.zero);
+
+      app.logout();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(repo.session, isNull);
+      expect(app.hasSession, isFalse);
+      expect(repo.rooms!.any((r) => r['name'] == 'Roomku'), isTrue);
+    });
+
+    test('akun terdaftar bisa dicari ulang via email', () async {
+      final repo = _MemoryRepo();
+      final app = AppState(repository: repo);
+      await app.saveAccount(name: 'Fitri', email: 'Fitri@Kampus.ac.id');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(await app.lookupAccountName('fitri@kampus.ac.id'), 'Fitri');
+      expect(await app.lookupAccountName('lain@kampus.ac.id'), isNull);
     });
   });
 }

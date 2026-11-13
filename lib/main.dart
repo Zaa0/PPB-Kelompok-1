@@ -1,11 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'data/local_repository.dart';
 import 'screens/welcome_screen.dart';
 import 'state/app_state.dart';
 
-void main() {
-  runApp(const UniTalkApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(UniTalkApp(state: await _loadAppState()));
+}
+
+Future<AppState> _loadAppState() async {
+  try {
+    // Muat data tersimpan (sesi, room, chat) sebelum aplikasi jalan.
+    final repo = LocalRepository();
+    await repo.init();
+    final app = AppState(repository: repo);
+    await app.restore();
+    return app;
+  } catch (_) {
+    // Kalau penyimpanan lokal gagal (misal browser tanpa IndexedDB),
+    // jalan tanpa persistensi supaya aplikasi tetap bisa dipakai.
+    return AppState();
+  }
 }
 
 class UniTalkApp extends StatelessWidget {

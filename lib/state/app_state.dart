@@ -1,17 +1,24 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../data/app_repository.dart';
 import '../models/app_data.dart';
 
 // State terpusat aplikasi: identitas user/guest, daftar room, membership,
 // dan isi chat per room. Screens tinggal konsumsi lewat provider.
 //
-// Semua logika aturan (guest hanya posting di room allowGuest, admin =
-// pembuat room, kode undangan unik) kumpul di sini supaya screens polos.
-// Data masih in-memory (dummy + buatan user); penyimpanan lokal menyusul.
+// Kalau repository disediakan (aplikasi asli), setiap perubahan langsung
+// disimpan lokal dan dipulihkan lagi saat aplikasi dibuka (offline-first
+// sederhana). Tanpa repository (test/mock), semuanya in-memory.
 class AppState extends ChangeNotifier {
   // Untuk mock lokal, user perangkat ini selalu punya id 'me'.
   static const String _localUserId = 'me';
   String get userId => _localUserId;
+
+  final AppRepository? _repo;
+
+  AppState({AppRepository? repository}) : _repo = repository;
 
   bool _hasSession = false;
   bool _isGuest = false;
@@ -36,6 +43,36 @@ class AppState extends ChangeNotifier {
 
   bool isJoined(String roomId) => _joinedIds.contains(roomId);
 
+  // ── Pulihkan data tersimpan ──
+
+  // Dipanggil sekali sebelum runApp; belum ada listener jadi tidak perlu
+  // notifyListeners di sini.
+  Future<void> restore() async {
+    final repo = _repo;
+    if (repo == null) return;
+
+    final session = await repo.loadSession();
+    if (session != null) {
+      _hasSession = true;
+      _isGuest = session.isGuest;
+      _displayName = session.displayName;
+    }
+
+    final rooms = await repo.loadRooms();
+    if (rooms == null) {
+      // Pertama kali: seed dummy langsung disimpan supaya konsisten.
+      await repo.saveRooms(_rooms);
+      return;
+    }
+    _rooms
+      ..clear()
+      ..addAll(rooms);
+    for (final room in rooms) {
+      final msgs = await repo.loadMessages(room.id);
+      if (msgs != null) _messagesByRoom[room.id] = msgs;
+    }
+  }
+
   // ── Sesi ──
 
   // Dipakai tombol login/guest: selalu set identitas baru.
@@ -43,6 +80,7 @@ class AppState extends ChangeNotifier {
     _hasSession = true;
     _isGuest = isGuest;
     _displayName = userName;
+    _saveSession();
     notifyListeners();
   }
 
@@ -54,12 +92,15 @@ class AppState extends ChangeNotifier {
     _hasSession = true;
     _isGuest = isGuest;
     _displayName = userName;
+    _saveSession();
   }
 
   void logout() {
     _hasSession = false;
     _isGuest = false;
     _displayName = 'User';
+    final repo = _repo;
+    if (repo != null) unawaited(repo.clearSession());
     notifyListeners();
   }
 
@@ -67,7 +108,22 @@ class AppState extends ChangeNotifier {
     final n = name.trim();
     if (n.isEmpty) return;
     _displayName = n;
+    _saveSession();
     notifyListeners();
+  }
+
+  // ── Akun mock (untuk layar login) ──
+
+  // Nama tampilan dari email yang pernah daftar; null kalau belum ada.
+  Future<String?> lookupAccountName(String email) async {
+    return _repo?.findAccountNameByEmail(email);
+  }
+
+  Future<void> saveAccount({
+    required String name,
+    required String email,
+  }) async {
+    await _repo?.saveAccount(name: name, email: email);
   }
 
   // ── Aturan akses ──
@@ -119,6 +175,7 @@ class AppState extends ChangeNotifier {
     );
     _rooms.add(room);
     _myRoomIds.add(id);
+    _saveRooms();
     notifyListeners();
     return room;
   }
@@ -132,6 +189,7 @@ class AppState extends ChangeNotifier {
       _rooms[i] = room.copyWith(memberIds: [...room.memberIds, userId]);
     }
     _joinedIds.add(room.id);
+    _saveRooms();
     notifyListeners();
     return _rooms[i];
   }
@@ -142,13 +200,14 @@ class AppState extends ChangeNotifier {
     _joinedIds.remove(room.id);
     _messagesByRoom.remove(room.id);
     _memberNamesByRoom.remove(room.id);
+    _saveRooms();
     notifyListeners();
   }
 
   // ── Chat ──
 
-  // Pesan per room di-seed dari dummy saat pertama kali dibuka, lalu
-  // tersimpan di state jadi tidak hilang lagi saat pindah room.
+  // Pesan per room di-seed dari dummy saat pertama kali dibuka (kalau tidak
+  // ada data tersimpan), lalu tersimpan di state jadi tidak hilang lagi.
   List<ChatMessage> messagesFor(ChatRoom room) {
     return _messagesByRoom.putIfAbsent(
       room.id,
@@ -173,11 +232,14 @@ class AppState extends ChangeNotifier {
     if (i != -1) {
       _rooms[i] = _rooms[i].copyWith(lastMessage: t, lastTime: _formatNow());
     }
+    _saveRooms();
+    _saveMessages(room.id);
     notifyListeners();
   }
 
   void deleteMessage(ChatRoom room, ChatMessage message) {
     _messagesByRoom[room.id]?.removeWhere((m) => m.id == message.id);
+    _saveMessages(room.id);
     notifyListeners();
   }
 
@@ -193,5 +255,31 @@ class AppState extends ChangeNotifier {
   void kickMember(ChatRoom room, String name) {
     _memberNamesByRoom[room.id]?.remove(name);
     notifyListeners();
+  }
+
+  // ── Penyimpanan (fire-and-forget; kegagalan tidak boleh mengganggu UI) ──
+
+  void _saveSession() {
+    final repo = _repo;
+    if (repo == null) return;
+    unawaited(
+      repo.saveSession(
+        SessionData(isGuest: _isGuest, displayName: _displayName),
+      ),
+    );
+  }
+
+  void _saveRooms() {
+    final repo = _repo;
+    if (repo == null) return;
+    unawaited(repo.saveRooms(_rooms));
+  }
+
+  void _saveMessages(String roomId) {
+    final repo = _repo;
+    if (repo == null) return;
+    final msgs = _messagesByRoom[roomId];
+    if (msgs == null) return;
+    unawaited(repo.saveMessages(roomId, msgs));
   }
 }
