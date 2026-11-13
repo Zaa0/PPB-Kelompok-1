@@ -64,7 +64,9 @@ void main() {
       expect(m.senderId, '2');
       expect(m.senderName, 'Budi');
       expect(m.senderInitial, 'B');
-      expect(m.createdAt.hour, 9);
+      // Timestamp UTC dari API dikonversi ke waktu lokal.
+      expect(m.createdAt.isUtc, isFalse);
+      expect(m.createdAt.toUtc().hour, 9);
     });
 
     test('error API diubah jadi ApiException dengan pesan server', () async {

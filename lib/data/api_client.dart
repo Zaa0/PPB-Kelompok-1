@@ -227,11 +227,14 @@ class ApiClient {
         senderId: '${j['sender_id'] ?? ''}',
         senderName: (j['sender_name'] ?? 'Guest') as String,
         text: (j['text'] ?? '') as String,
-        createdAt: DateTime.tryParse((j['created_at'] ?? '') as String) ?? DateTime.now(),
+        // Konversi ke zona waktu lokal supaya jam di bubble konsisten.
+        createdAt:
+            DateTime.tryParse((j['created_at'] ?? '') as String)?.toLocal() ??
+                DateTime.now(),
       );
 
   String _shortTime(String? iso) {
-    final dt = DateTime.tryParse(iso ?? '');
+    final dt = DateTime.tryParse(iso ?? '')?.toLocal();
     if (dt == null) return '';
     final h = dt.hour.toString().padLeft(2, '0');
     final m = dt.minute.toString().padLeft(2, '0');

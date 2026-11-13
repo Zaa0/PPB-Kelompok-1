@@ -474,6 +474,9 @@ class _HomeScreenState extends State<HomeScreen>
               onChanged: (v) => setState(() => _searchQuery = v),
               style: const TextStyle(color: Colors.white, fontSize: 14),
               decoration: InputDecoration(
+                // Timpa tema global (fill putih) biar hint terbaca di header biru.
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.0),
                 hintText: 'Cari chat room...',
                 hintStyle: TextStyle(
                   color: Colors.white.withValues(alpha: 0.6),
@@ -840,19 +843,21 @@ class _HomeScreenState extends State<HomeScreen>
               )
             : SizedBox(
                 width: 360,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (final r in myRooms)
-                      ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(r.icon, color: r.color),
-                        title: Text(r.name),
-                        subtitle: Text('Kode: ${r.inviteCode}'),
-                      ),
-                  ],
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final r in myRooms)
+                        ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(r.icon, color: r.color),
+                          title: Text(r.name),
+                          subtitle: Text('Kode: ${r.inviteCode}'),
+                        ),
+                    ],
+                  ),
                 ),
               ),
         actions: [
