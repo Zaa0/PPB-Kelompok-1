@@ -31,7 +31,7 @@ Flutter (Android / Web)  --HTTP/JSON-->  Laravel API  ---->  MySQL (db: unitalk)
 ```
 - Aplikasi otomatis dua mode: **online** (backend jalan) dan **offline**
   (backend mati → pakai cache, ada tanda "Offline" di header).
-- Proyek backend ada di folder terpisah: `../unitalk-api`.
+- Proyek backend ada di folder `backend/` (repo yang sama).
 
 ## Menjalankan backend (Laragon)
 1. Start MySQL lewat Laragon (atau biarkan `php artisan` yang menghubungi).
@@ -41,7 +41,7 @@ Flutter (Android / Web)  --HTTP/JSON-->  Laravel API  ---->  MySQL (db: unitalk)
    ```
 3. Install & isi data awal:
    ```bash
-   cd unitalk-api
+   cd backend
    composer install
    php artisan install:api      # jika belum
    php artisan migrate:fresh --seed
@@ -75,7 +75,7 @@ flutter run --dart-define=API_URL=http://<IP-LAPTOP>:8000/api
 ```bash
 flutter analyze
 flutter test                   # unit + widget test
-cd ../unitalk-api && php artisan test   # feature test API
+cd backend && php artisan test # feature test API
 ```
 
 ## Responsif
