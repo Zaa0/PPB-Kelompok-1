@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'data/api_client.dart';
 import 'data/local_repository.dart';
 import 'screens/welcome_screen.dart';
 import 'state/app_state.dart';
@@ -13,9 +14,11 @@ Future<void> main() async {
 Future<AppState> _loadAppState() async {
   try {
     // Muat data tersimpan (sesi, room, chat) sebelum aplikasi jalan.
+    // ApiClient aktif = mode online; kalau server tidak bisa dihubungi,
+    // aplikasi otomatis jalan offline dari cache.
     final repo = LocalRepository();
     await repo.init();
-    final app = AppState(repository: repo);
+    final app = AppState(repository: repo, api: ApiClient());
     await app.restore();
     return app;
   } catch (_) {

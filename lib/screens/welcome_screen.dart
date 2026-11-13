@@ -1,8 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../data/api_client.dart';
 import '../state/app_state.dart';
 import 'home_screen.dart';
+
+// Masuk sebagai guest: online pakai API, offline pakai sesi lokal.
+Future<void> _enterGuest(BuildContext context) async {
+  final app = context.read<AppState>();
+  try {
+    await app.startGuestSession();
+  } on ApiException catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(e.message),
+        backgroundColor: const Color(0xFFEF4444),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+    return;
+  }
+  if (!context.mounted) return;
+  Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(builder: (_) => const HomeScreen()),
+  );
+}
 
 // ==================== WELCOME SCREEN ====================
 class WelcomeScreen extends StatelessWidget {
@@ -213,15 +238,7 @@ class _ActionContent extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: () {
-                context
-                    .read<AppState>()
-                    .startSession(isGuest: true, userName: 'Guest');
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const HomeScreen()),
-                );
-              },
+              onPressed: () => _enterGuest(context),
               icon: const Icon(Icons.person_outline, size: 20),
               label: const Text(
                 'Masuk sebagai Guest',
@@ -301,7 +318,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePass = true;
   bool _isLoading = false;
 
-  void _doLogin() async {
+  Future<void> _doLogin() async {
     if (_emailCtrl.text.isEmpty ||
         _passCtrl.text.isEmpty ||
         (_isRegister && _namaCtrl.text.trim().isEmpty)) {
@@ -320,23 +337,47 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
     final app = context.read<AppState>();
     final email = _emailCtrl.text.trim();
-    await Future.delayed(const Duration(seconds: 2)); // Simulasi loading
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-    String name;
-    if (_isRegister) {
-      name = _namaCtrl.text.trim();
-      await app.saveAccount(name: name, email: email);
-    } else {
-      // Email yang pernah daftar menampilkan nama akunnya.
-      name = await app.lookupAccountName(email) ?? email.split('@').first;
+    try {
+      if (app.isOnline && !app.offlineMode) {
+        // Mode online: login/daftar beneran lewat API Laravel.
+        if (_isRegister) {
+          await app.registerAndStart(_namaCtrl.text.trim(), email, _passCtrl.text);
+        } else {
+          await app.loginAndStart(email, _passCtrl.text);
+        }
+      } else {
+        // Mode mock offline (perilaku versi lama).
+        await Future.delayed(const Duration(seconds: 2));
+        if (!mounted) return;
+        String name;
+        if (_isRegister) {
+          name = _namaCtrl.text.trim();
+          await app.saveAccount(name: name, email: email);
+        } else {
+          name = await app.lookupAccountName(email) ?? email.split('@').first;
+        }
+        app.startSession(isGuest: false, userName: name);
+      }
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-    if (!mounted) return;
-    app.startSession(isGuest: false, userName: name);
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
-    );
   }
 
   @override
@@ -566,17 +607,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
-                    onPressed: () {
-                      context
-                          .read<AppState>()
-                          .startSession(isGuest: true, userName: 'Guest');
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const HomeScreen(),
-                        ),
-                      );
-                    },
+                    onPressed: () => _enterGuest(context),
                     icon: const Icon(Icons.person_outline),
                     label: const Text(
                       'Lanjutkan sebagai Guest',

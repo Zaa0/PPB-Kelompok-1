@@ -1,11 +1,19 @@
 import '../models/app_data.dart';
 
-// Sesi yang tersimpan antar buka-tutup aplikasi.
+// Sesi yang tersimpan antar buka-tutup aplikasi. Kalau online, token API
+// ikut disimpan supaya user tidak login ulang setiap buka aplikasi.
 class SessionData {
   final bool isGuest;
   final String displayName;
+  final String? token;
+  final String? userId;
 
-  const SessionData({required this.isGuest, required this.displayName});
+  const SessionData({
+    required this.isGuest,
+    required this.displayName,
+    this.token,
+    this.userId,
+  });
 }
 
 // Batas sumber data aplikasi. Implementasinya sekarang lokal

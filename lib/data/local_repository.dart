@@ -37,6 +37,8 @@ class LocalRepository implements AppRepository {
       return SessionData(
         isGuest: (json['isGuest'] ?? false) as bool,
         displayName: (json['displayName'] ?? 'User') as String,
+        token: json['token'] as String?,
+        userId: json['userId'] as String?,
       );
     } catch (_) {
       return null;
@@ -50,6 +52,8 @@ class LocalRepository implements AppRepository {
       jsonEncode({
         'isGuest': session.isGuest,
         'displayName': session.displayName,
+        'token': session.token,
+        'userId': session.userId,
       }),
     );
   }

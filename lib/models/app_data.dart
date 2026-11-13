@@ -192,6 +192,21 @@ class ChatMessage {
   );
 }
 
+// Anggota room (dari API saat online, atau contoh saat offline).
+class RoomMember {
+  final String id;
+  final String name;
+  final bool isAdmin;
+  final bool isGuest;
+
+  const RoomMember({
+    required this.id,
+    required this.name,
+    this.isAdmin = false,
+    this.isGuest = false,
+  });
+}
+
 // Data dummy chat rooms
 class DummyData {
   static List<String> _members(int count) =>

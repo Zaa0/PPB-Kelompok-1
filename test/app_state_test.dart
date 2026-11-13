@@ -68,11 +68,11 @@ class _MemoryRepo implements AppRepository {
 // membership, kirim pesan, dan roundtrip JSON model.
 void main() {
   group('AppState', () {
-    test('kode undangan buat room selalu unik', () {
+    test('kode undangan buat room selalu unik', () async {
       final app = AppState();
       final kode = <String>{};
       for (var i = 0; i < 20; i++) {
-        final room = app.createRoom(name: 'Room $i');
+        final room = await app.createRoom(name: 'Room $i');
         expect(room.inviteCode, startsWith('UT-'));
         kode.add(room.inviteCode);
       }
@@ -91,25 +91,25 @@ void main() {
       expect(app.canPostIn(roomBiasa), isTrue);
     });
 
-    test('gabung via kode menambah membership dan jumlah anggota', () {
+    test('gabung via kode menambah membership dan jumlah anggota', () async {
       final app = AppState();
       app.startSession(isGuest: false, userName: 'Yuza');
       final sebelum = DummyData.rooms
           .firstWhere((r) => r.id == '1')
           .memberCount;
-      final room = app.joinByCode('ut-101'); // huruf kecil harus tetap kena
+      final room = await app.joinByCode('ut-101'); // huruf kecil harus tetap kena
       expect(room, isNotNull);
       expect(room!.memberCount, sebelum + 1);
-      expect(app.joinByCode('UT-999'), isNull);
+      expect(await app.joinByCode('UT-999'), isNull);
     });
 
-    test('kirim pesan menambah chat dan update lastMessage room', () {
+    test('kirim pesan menambah chat dan update lastMessage room', () async {
       final app = AppState();
       app.startSession(isGuest: false, userName: 'Yuza');
       final room = DummyData.rooms.first;
       final sebelum = app.messagesFor(room).length;
 
-      app.sendMessage(room, 'Tes kirim pesan');
+      await app.sendMessage(room, 'Tes kirim pesan');
 
       final msgs = app.messagesFor(room);
       expect(msgs.length, sebelum + 1);
@@ -119,23 +119,23 @@ void main() {
       expect(updated.lastMessage, 'Tes kirim pesan');
     });
 
-    test('admin hanya untuk pembuat room', () {
+    test('admin hanya untuk pembuat room', () async {
       final app = AppState();
       app.startSession(isGuest: false, userName: 'Yuza');
       final dummy = DummyData.rooms.first;
       expect(app.isAdmin(dummy), isFalse);
 
-      final buatan = app.createRoom(name: 'Roomku');
+      final buatan = await app.createRoom(name: 'Roomku');
       expect(app.isAdmin(buatan), isTrue);
     });
 
-    test('pindah room tidak menghilangkan pesan yang sudah dikirim', () {
+    test('pindah room tidak menghilangkan pesan yang sudah dikirim', () async {
       final app = AppState();
       app.startSession(isGuest: false, userName: 'Yuza');
       final room1 = DummyData.rooms.firstWhere((r) => r.id == '1');
       final room2 = DummyData.rooms.firstWhere((r) => r.id == '2');
 
-      app.sendMessage(room1, 'Pesan bertahan');
+      await app.sendMessage(room1, 'Pesan bertahan');
       // Buka room lain lalu kembali ke room1.
       app.messagesFor(room2);
       final kembali = app.messagesFor(room1);
@@ -210,8 +210,8 @@ void main() {
       final repo = _MemoryRepo();
       final app = AppState(repository: repo);
       app.startSession(isGuest: false, userName: 'Yuza');
-      app.createRoom(name: 'Baru');
-      app.sendMessage(DummyData.rooms.first, 'cek simpan');
+      await app.createRoom(name: 'Baru');
+      await app.sendMessage(DummyData.rooms.first, 'cek simpan');
       await Future<void>.delayed(Duration.zero); // tunggu simpan selesai
 
       expect(repo.rooms!.length, DummyData.rooms.length + 1);
@@ -226,7 +226,7 @@ void main() {
       final repo = _MemoryRepo();
       final app = AppState(repository: repo);
       app.startSession(isGuest: false, userName: 'Yuza');
-      app.createRoom(name: 'Roomku');
+      await app.createRoom(name: 'Roomku');
       await Future<void>.delayed(Duration.zero);
 
       app.logout();

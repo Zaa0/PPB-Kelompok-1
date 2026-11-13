@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../data/api_client.dart';
 import '../models/app_data.dart';
 import '../state/app_state.dart';
 import 'chat_room_screen.dart';
@@ -100,25 +101,35 @@ class _HomeScreenState extends State<HomeScreen>
               child: const Text('Batal'),
             ),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 if (namaCtrl.text.trim().isEmpty) return;
                 final app = context.read<AppState>();
-                final room = app.createRoom(
-                  name: namaCtrl.text.trim(),
-                  description: deskCtrl.text.trim(),
-                  category: kategori,
-                );
-                if (_isWide) {
-                  setState(() => _selectedRoom = room);
-                }
+                final nama = namaCtrl.text.trim();
+                final desk = deskCtrl.text.trim();
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Room dibuat! Kode undangan: ${room.inviteCode}',
+                try {
+                  final room = await app.createRoom(
+                    name: nama,
+                    description: desk,
+                    category: kategori,
+                  );
+                  if (!mounted) return;
+                  if (_isWide) {
+                    setState(() => _selectedRoom = room);
+                  }
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Room dibuat! Kode undangan: ${room.inviteCode}',
+                      ),
                     ),
-                  ),
-                );
+                  );
+                } on ApiException catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(e.message)),
+                  );
+                }
               },
               child: const Text('Buat'),
             ),
@@ -149,17 +160,27 @@ class _HomeScreenState extends State<HomeScreen>
             child: const Text('Batal'),
           ),
             ElevatedButton(
-              onPressed: () {
-                final kode = kodeCtrl.text.trim().toUpperCase();
-                final room = context.read<AppState>().joinByCode(kode);
+              onPressed: () async {
+                final kode = kodeCtrl.text.trim();
+                if (kode.isEmpty) return;
+                final app = context.read<AppState>();
                 Navigator.pop(ctx);
-                if (room == null) {
+                try {
+                  final room = await app.joinByCode(kode);
+                  if (!mounted) return;
+                  if (room == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Kode tidak ditemukan')),
+                    );
+                    return;
+                  }
+                  _openRoom(room);
+                } on ApiException catch (e) {
+                  if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Kode tidak ditemukan')),
+                    SnackBar(content: Text(e.message)),
                   );
-                  return;
                 }
-                _openRoom(room);
               },
               child: const Text('Gabung'),
             ),
@@ -183,7 +204,6 @@ class _HomeScreenState extends State<HomeScreen>
       MaterialPageRoute(builder: (_) => ChatRoomScreen(room: room)),
     );
     if (hapus == true && mounted) {
-      context.read<AppState>().deleteRoom(room);
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Room dihapus')));
     }
@@ -296,10 +316,9 @@ class _HomeScreenState extends State<HomeScreen>
       room: room,
       embedded: true,
       onClose: () => setState(() => _selectedRoom = null),
-      onRoomDeleted: () {
-        app.deleteRoom(room);
-        setState(() => _selectedRoom = null);
-      },
+      // Room sudah dihapus lewat AppState di ChatRoomScreen;
+      // di sini cukup tutup panelnya.
+      onRoomDeleted: () => setState(() => _selectedRoom = null),
     );
   }
 
@@ -348,9 +367,8 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     ),
                     Text(
-                      app.isGuest
-                          ? 'Mode Guest – Fitur terbatas'
-                          : 'Mahasiswa Aktif',
+                      '${app.isGuest ? 'Mode Guest – Fitur terbatas' : 'Mahasiswa Aktif'}'
+                      '${app.offlineMode ? ' • Offline' : ''}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -498,6 +516,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildRoomList(AppState app, String category) {
     final rooms = _filteredRooms(app, category);
+    // Loading pertama saat ambil daftar room dari API.
+    if (app.loadingRooms && app.rooms.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (rooms.isEmpty) {
       return Center(
         child: Column(

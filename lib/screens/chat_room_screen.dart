@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../data/api_client.dart';
 import '../models/app_data.dart';
 import '../state/app_state.dart';
 import 'welcome_screen.dart';
@@ -26,11 +29,29 @@ class ChatRoomScreen extends StatefulWidget {
 class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final TextEditingController _msgCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
+  late final AppState _app = context.read<AppState>();
 
-  void _sendMessage() {
+  @override
+  void initState() {
+    super.initState();
+    // Ambil pesan & anggota dari API, lalu polling pesan baru tiap 3 detik.
+    _app.startPolling(widget.room);
+    unawaited(_app.loadMessages(widget.room));
+    unawaited(_app.loadMembers(widget.room));
+  }
+
+  @override
+  void dispose() {
+    _app.stopPolling();
+    _msgCtrl.dispose();
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendMessage() async {
     final text = _msgCtrl.text.trim();
     if (text.isEmpty) return;
-    context.read<AppState>().sendMessage(widget.room, text);
+    await _app.sendMessage(widget.room, text);
     _msgCtrl.clear();
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollCtrl.hasClients) {
@@ -296,7 +317,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Hapus pesan?'),
-        content: Text('"${msg.text}" akan dihapus untuk semua anggota (mock).'),
+        content: Text('"${msg.text}" akan dihapus untuk semua anggota.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -307,9 +328,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
             ),
-            onPressed: () {
-              context.read<AppState>().deleteMessage(widget.room, msg);
+            onPressed: () async {
               Navigator.pop(ctx);
+              await _app.deleteMessage(widget.room, msg);
             },
             child: const Text('Hapus'),
           ),
@@ -320,78 +341,84 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   // ── Admin: lihat + keluarkan anggota ──
   void _memberSheet() {
-    final app = context.read<AppState>();
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) {
-          final aktif = app.memberNamesFor(widget.room);
-          return Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Anggota (${widget.room.memberCount})',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
+      builder: (ctx) {
+        final app = ctx.watch<AppState>();
+        final members = app.membersFor(widget.room);
+        return Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Anggota (${widget.room.memberCount})',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Menampilkan ${aktif.length} anggota contoh (mock)',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade500,
-                      ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Menampilkan ${members.length} anggota',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade500,
                     ),
-                    const SizedBox(height: 8),
-                    for (final m in aktif)
-                      ListTile(
-                        leading: CircleAvatar(child: Text(m[0])),
-                        title: Text(m),
-                        trailing: app.isAdmin(widget.room)
-                            ? TextButton(
-                                onPressed: () {
-                                  setSheet(
-                                    () => app.kickMember(widget.room, m),
-                                  );
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('$m dikeluarkan (mock)'),
-                                    ),
-                                  );
-                                },
-                                child: const Text(
-                                  'Keluarkan',
-                                  style: TextStyle(color: Colors.red),
-                                ),
-                              )
-                            : null,
-                      ),
-                    if (!app.isAdmin(widget.room))
-                      const Padding(
-                        padding: EdgeInsets.only(top: 8),
+                  ),
+                  const SizedBox(height: 8),
+                  for (final m in members)
+                    ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
                         child: Text(
-                          'Hanya admin room yang bisa mengeluarkan anggota.',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                          m.name.isNotEmpty ? m.name[0].toUpperCase() : '?',
                         ),
                       ),
-                  ],
-                ),
+                      title: Text(m.name),
+                      subtitle: m.isAdmin
+                          ? const Text('Admin')
+                          : (m.isGuest ? const Text('Guest') : null),
+                      trailing: (app.isAdmin(widget.room) && m.id != app.userId)
+                          ? TextButton(
+                              onPressed: () async {
+                                await app.kickMember(widget.room, m);
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('${m.name} dikeluarkan'),
+                                  ),
+                                );
+                              },
+                              child: const Text(
+                                'Keluarkan',
+                                style: TextStyle(color: Colors.red),
+                              ),
+                            )
+                          : null,
+                    ),
+                  if (!app.isAdmin(widget.room))
+                    const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Hanya admin room yang bisa mengeluarkan anggota.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ),
+                ],
               ),
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -401,7 +428,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Hapus room?'),
-        content: Text('"${widget.room.name}" akan dihapus (mock).'),
+        content: Text('"${widget.room.name}" akan dihapus untuk semua anggota.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -412,8 +439,18 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
             ),
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(ctx);
+              try {
+                await _app.deleteRoom(widget.room);
+              } on ApiException catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(e.message)),
+                );
+                return;
+              }
+              if (!mounted) return;
               if (widget.embedded) {
                 widget.onRoomDeleted?.call();
               } else {
@@ -574,13 +611,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         ),
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _msgCtrl.dispose();
-    _scrollCtrl.dispose();
-    super.dispose();
   }
 }
 
