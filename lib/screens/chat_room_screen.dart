@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../models/app_data.dart';
+import '../state/app_state.dart';
 import 'welcome_screen.dart';
 
 class ChatRoomScreen extends StatefulWidget {
   final ChatRoom room;
-  final bool isGuest;
-  final String userName;
-  final bool isAdmin; // true jika user adalah pembuat room (mock)
   final bool embedded; // true saat ditampilkan di panel kanan (desktop/tablet)
   final VoidCallback? onRoomDeleted;
   final VoidCallback? onClose;
@@ -15,9 +14,6 @@ class ChatRoomScreen extends StatefulWidget {
   const ChatRoomScreen({
     super.key,
     required this.room,
-    required this.isGuest,
-    required this.userName,
-    this.isAdmin = false,
     this.embedded = false,
     this.onRoomDeleted,
     this.onClose,
@@ -30,31 +26,11 @@ class ChatRoomScreen extends StatefulWidget {
 class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final TextEditingController _msgCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
-  late final List<ChatMessage> _messages = List.from(
-    DummyData.messagesFor(widget.room),
-  );
-  late final List<String> _members = ['Budi', 'Sari', 'Rina', 'Deni'];
-  final Set<String> _kicked = {};
 
   void _sendMessage() {
     final text = _msgCtrl.text.trim();
     if (text.isEmpty) return;
-    final initial = widget.userName.isNotEmpty
-        ? widget.userName[0].toUpperCase()
-        : 'M';
-    setState(() {
-      _messages.add(
-        ChatMessage(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          senderName: widget.userName,
-          senderInitial: initial,
-          senderColor: const Color(0xFF1E3A8A),
-          text: text,
-          time: _formatTime(DateTime.now()),
-          isMe: true,
-        ),
-      );
-    });
+    context.read<AppState>().sendMessage(widget.room, text);
     _msgCtrl.clear();
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollCtrl.hasClients) {
@@ -67,12 +43,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     });
   }
 
-  String _formatTime(DateTime dt) {
-    final h = dt.hour.toString().padLeft(2, '0');
-    final m = dt.minute.toString().padLeft(2, '0');
-    return '$h:$m';
-  }
-
   // Guest diarahkan ke layar login, bukan sekadar kembali.
   void _goToLogin() {
     Navigator.of(context).pushAndRemoveUntil(
@@ -83,11 +53,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final body = _buildBody();
+    final app = context.watch<AppState>();
+    final body = _buildBody(app);
     if (widget.embedded) {
       return Column(
         children: [
-          _buildAppBar(),
+          _buildAppBar(app),
           Expanded(child: body),
         ],
       );
@@ -96,13 +67,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       backgroundColor: const Color(0xFFF0F6FF),
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(65),
-        child: _buildAppBar(),
+        child: _buildAppBar(app),
       ),
       body: body,
     );
   }
 
-  Widget _buildAppBar() {
+  Widget _buildAppBar(AppState app) {
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -210,7 +181,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       style: TextStyle(color: Colors.red),
                     ),
                   ),
-                  if (widget.isAdmin)
+                  if (app.isAdmin(widget.room))
                     const PopupMenuItem(
                       value: 'HapusRoom',
                       child: Text(
@@ -227,11 +198,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(AppState app) {
+    final messages = app.messagesFor(widget.room);
     return Column(
       children: [
         // Guest banner
-        if (widget.isGuest)
+        if (app.isGuest)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -284,18 +256,23 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   horizontal: 16,
                   vertical: 12,
                 ),
-                itemCount: _messages.length,
+                itemCount: messages.length,
                 itemBuilder: (context, i) {
-                  final msg = _messages[i];
+                  final msg = messages[i];
                   final showDate = i == 0;
                   return Column(
                     children: [
                       if (showDate) const _DateDivider(date: 'Hari ini'),
                       GestureDetector(
-                        onLongPress: (msg.isMe || widget.isAdmin)
+                        onLongPress:
+                            (msg.isSentBy(app.userId) ||
+                                app.isAdmin(widget.room))
                             ? () => _confirmHapus(msg)
                             : null,
-                        child: _MessageBubble(message: msg),
+                        child: _MessageBubble(
+                          message: msg,
+                          isMe: msg.isSentBy(app.userId),
+                        ),
                       ),
                     ],
                   );
@@ -305,7 +282,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           ),
         ),
         // Input
-        if (!widget.isGuest || widget.room.allowGuest)
+        if (app.canPostIn(widget.room))
           _buildInputBar()
         else
           _buildGuestBar(),
@@ -331,7 +308,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               foregroundColor: Colors.white,
             ),
             onPressed: () {
-              setState(() => _messages.removeWhere((m) => m.id == msg.id));
+              context.read<AppState>().deleteMessage(widget.room, msg);
               Navigator.pop(ctx);
             },
             child: const Text('Hapus'),
@@ -343,6 +320,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   // ── Admin: lihat + keluarkan anggota ──
   void _memberSheet() {
+    final app = context.read<AppState>();
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -350,7 +328,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheet) {
-          final aktif = _members.where((m) => !_kicked.contains(m)).toList();
+          final aktif = app.memberNamesFor(widget.room);
           return Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 560),
@@ -380,11 +358,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       ListTile(
                         leading: CircleAvatar(child: Text(m[0])),
                         title: Text(m),
-                        trailing: widget.isAdmin
+                        trailing: app.isAdmin(widget.room)
                             ? TextButton(
                                 onPressed: () {
-                                  setSheet(() => _kicked.add(m));
-                                  setState(() {});
+                                  setSheet(
+                                    () => app.kickMember(widget.room, m),
+                                  );
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                       content: Text('$m dikeluarkan (mock)'),
@@ -398,7 +377,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                               )
                             : null,
                       ),
-                    if (!widget.isAdmin)
+                    if (!app.isAdmin(widget.room))
                       const Padding(
                         padding: EdgeInsets.only(top: 8),
                         child: Text(
@@ -639,11 +618,11 @@ class _DateDivider extends StatelessWidget {
 
 class _MessageBubble extends StatelessWidget {
   final ChatMessage message;
-  const _MessageBubble({required this.message});
+  final bool isMe;
+  const _MessageBubble({required this.message, required this.isMe});
 
   @override
   Widget build(BuildContext context) {
-    final isMe = message.isMe;
     return Padding(
       padding: EdgeInsets.only(
         bottom: 8,
@@ -662,7 +641,9 @@ class _MessageBubble extends StatelessWidget {
               height: 32,
               margin: const EdgeInsets.only(right: 8, bottom: 2),
               decoration: BoxDecoration(
-                color: message.senderColor.withValues(alpha: 0.15),
+                color: colorForSender(
+                  message.senderName,
+                ).withValues(alpha: 0.15),
                 shape: BoxShape.circle,
               ),
               child: Center(
@@ -671,7 +652,7 @@ class _MessageBubble extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
-                    color: message.senderColor,
+                    color: colorForSender(message.senderName),
                   ),
                 ),
               ),
@@ -693,7 +674,7 @@ class _MessageBubble extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
-                          color: message.senderColor,
+                          color: colorForSender(message.senderName),
                         ),
                       ),
                     ),
@@ -735,7 +716,7 @@ class _MessageBubble extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: Text(
-                      message.time,
+                      message.timeLabel,
                       style: TextStyle(
                         fontSize: 10,
                         color: Colors.grey.shade400,

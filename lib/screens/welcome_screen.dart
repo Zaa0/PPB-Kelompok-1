@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../state/app_state.dart';
 import 'home_screen.dart';
 
 // ==================== WELCOME SCREEN ====================
@@ -207,13 +209,15 @@ class _ActionContent extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: () => Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (_) =>
-                      const HomeScreen(isGuest: true, userName: 'Guest'),
-                ),
-              ),
+              onPressed: () {
+                context
+                    .read<AppState>()
+                    .startSession(isGuest: true, userName: 'Guest');
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const HomeScreen()),
+                );
+              },
               icon: const Icon(Icons.person_outline, size: 20),
               label: const Text(
                 'Masuk sebagai Guest',
@@ -316,11 +320,10 @@ class _LoginScreenState extends State<LoginScreen> {
     final name = _isRegister
         ? _namaCtrl.text.trim()
         : _emailCtrl.text.split('@').first;
+    context.read<AppState>().startSession(isGuest: false, userName: name);
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(
-        builder: (_) => HomeScreen(isGuest: false, userName: name),
-      ),
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
     );
   }
 
@@ -551,13 +554,17 @@ class _LoginScreenState extends State<LoginScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
-                    onPressed: () => Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            const HomeScreen(isGuest: true, userName: 'Guest'),
-                      ),
-                    ),
+                    onPressed: () {
+                      context
+                          .read<AppState>()
+                          .startSession(isGuest: true, userName: 'Guest');
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const HomeScreen(),
+                        ),
+                      );
+                    },
                     icon: const Icon(Icons.person_outline),
                     label: const Text(
                       'Lanjutkan sebagai Guest',

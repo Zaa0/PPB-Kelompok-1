@@ -1,14 +1,38 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'screens/welcome_screen.dart';
-import 'screens/home_screen.dart';
+import 'state/app_state.dart';
 
 void main() {
   runApp(const UniTalkApp());
 }
 
 class UniTalkApp extends StatelessWidget {
-  const UniTalkApp({super.key});
+  // Kalau state belum disiapkan dari luar (misal main() yang restore data
+  // tersimpan), state baru dibuat di memori. Ini juga yang dipakai test.
+  final AppState? state;
+
+  const UniTalkApp({super.key, this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final app = state;
+    if (app != null) {
+      return ChangeNotifierProvider<AppState>.value(
+        value: app,
+        child: const _AppView(),
+      );
+    }
+    return ChangeNotifierProvider<AppState>(
+      create: (_) => AppState(),
+      child: const _AppView(),
+    );
+  }
+}
+
+class _AppView extends StatelessWidget {
+  const _AppView();
 
   @override
   Widget build(BuildContext context) {
@@ -54,8 +78,6 @@ class UniTalkApp extends StatelessWidget {
       initialRoute: '/',
       routes: {
         '/': (context) => const WelcomeScreen(),
-        '/home': (context) =>
-            const HomeScreen(isGuest: false, userName: 'User'),
       },
     );
   }

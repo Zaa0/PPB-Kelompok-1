@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:project_pertama/main.dart';
 import 'package:project_pertama/screens/home_screen.dart';
+import 'package:project_pertama/state/app_state.dart';
+import 'package:provider/provider.dart';
 
 void main() {
   Future<void> pumpAt(WidgetTester tester, Widget child, Size size) async {
@@ -9,7 +11,12 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(MaterialApp(home: child));
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AppState>(
+        create: (_) => AppState(),
+        child: MaterialApp(home: child),
+      ),
+    );
     await tester.pumpAndSettle();
   }
 

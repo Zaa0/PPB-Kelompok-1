@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../models/app_data.dart';
+import '../state/app_state.dart';
 import 'chat_room_screen.dart';
+import 'welcome_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final bool isGuest;
   final String userName;
 
-  const HomeScreen({super.key, required this.isGuest, required this.userName});
+  // Parameternya tetap ada supaya screen bisa dipanggil langsung (mis. dari
+  // test); kalau sesi sudah ada di AppState, parameternya diabaikan.
+  const HomeScreen({super.key, this.isGuest = false, this.userName = 'User'});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -18,16 +23,16 @@ class _HomeScreenState extends State<HomeScreen>
   late TabController _tabController;
   int _bottomIndex = 0;
   String _searchQuery = '';
-  late final List<ChatRoom> _rooms = List.from(DummyData.rooms);
-  final Set<String> _myRoomIds = {}; // room yang saya buat = saya adminnya
-  late String _displayName = widget.userName;
   ChatRoom? _selectedRoom;
-  bool _selectedIsAdmin = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    context.read<AppState>().ensureSession(
+          isGuest: widget.isGuest,
+          userName: widget.userName,
+        );
   }
 
   @override
@@ -38,20 +43,12 @@ class _HomeScreenState extends State<HomeScreen>
 
   bool get _isWide => MediaQuery.sizeOf(context).width >= 900;
 
-  List<ChatRoom> _filteredRooms(String category) {
-    final rooms = _rooms.where((r) => r.category == category).toList();
+  List<ChatRoom> _filteredRooms(AppState app, String category) {
+    final rooms = app.rooms.where((r) => r.category == category).toList();
     if (_searchQuery.isEmpty) return rooms;
     return rooms
         .where((r) => r.name.toLowerCase().contains(_searchQuery.toLowerCase()))
         .toList();
-  }
-
-  String _generateInviteCode() {
-    var n = 100 + _rooms.length + 1;
-    while (_rooms.any((r) => r.inviteCode.toUpperCase() == 'UT-$n')) {
-      n++;
-    }
-    return 'UT-$n';
   }
 
   // ── Buat room baru (khusus akun terdaftar) ──
@@ -105,34 +102,15 @@ class _HomeScreenState extends State<HomeScreen>
             ElevatedButton(
               onPressed: () {
                 if (namaCtrl.text.trim().isEmpty) return;
-                final id = DateTime.now().millisecondsSinceEpoch.toString();
-                final room = ChatRoom(
-                  id: id,
+                final app = context.read<AppState>();
+                final room = app.createRoom(
                   name: namaCtrl.text.trim(),
+                  description: deskCtrl.text.trim(),
                   category: kategori,
-                  lastMessage: deskCtrl.text.trim().isEmpty
-                      ? 'Room baru dibuat'
-                      : deskCtrl.text.trim(),
-                  lastTime: 'Baru saja',
-                  unreadCount: 0,
-                  memberCount: 1,
-                  icon: kategori == 'matkul'
-                      ? Icons.book_outlined
-                      : kategori == 'organisasi'
-                      ? Icons.groups_outlined
-                      : Icons.topic_outlined,
-                  color: const Color(0xFF3B82F6),
-                  inviteCode: _generateInviteCode(),
-                  allowGuest: kategori == 'topik',
                 );
-                setState(() {
-                  _rooms.add(room);
-                  _myRoomIds.add(id);
-                  if (_isWide) {
-                    _selectedRoom = room;
-                    _selectedIsAdmin = true;
-                  }
-                });
+                if (_isWide) {
+                  setState(() => _selectedRoom = room);
+                }
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -170,23 +148,21 @@ class _HomeScreenState extends State<HomeScreen>
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Batal'),
           ),
-          ElevatedButton(
-            onPressed: () {
-              final kode = kodeCtrl.text.trim().toUpperCase();
-              final found = _rooms
-                  .where((r) => r.inviteCode.toUpperCase() == kode)
-                  .toList();
-              Navigator.pop(ctx);
-              if (found.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Kode tidak ditemukan')),
-                );
-                return;
-              }
-              _openRoom(found.first);
-            },
-            child: const Text('Gabung'),
-          ),
+            ElevatedButton(
+              onPressed: () {
+                final kode = kodeCtrl.text.trim().toUpperCase();
+                final room = context.read<AppState>().joinByCode(kode);
+                Navigator.pop(ctx);
+                if (room == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Kode tidak ditemukan')),
+                  );
+                  return;
+                }
+                _openRoom(room);
+              },
+              child: const Text('Gabung'),
+            ),
         ],
       ),
     );
@@ -195,10 +171,7 @@ class _HomeScreenState extends State<HomeScreen>
   // ── Buka room: desktop pilih di panel kanan, mobile buka halaman baru ──
   void _openRoom(ChatRoom room) {
     if (_isWide) {
-      setState(() {
-        _selectedRoom = room;
-        _selectedIsAdmin = _myRoomIds.contains(room.id);
-      });
+      setState(() => _selectedRoom = room);
     } else {
       _openChat(room);
     }
@@ -207,20 +180,10 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _openChat(ChatRoom room) async {
     final hapus = await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => ChatRoomScreen(
-          room: room,
-          isGuest: widget.isGuest,
-          userName: _displayName,
-          isAdmin: _myRoomIds.contains(room.id),
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => ChatRoomScreen(room: room)),
     );
     if (hapus == true && mounted) {
-      setState(() {
-        _rooms.removeWhere((r) => r.id == room.id);
-        _myRoomIds.remove(room.id);
-      });
+      context.read<AppState>().deleteRoom(room);
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Room dihapus')));
     }
@@ -228,17 +191,20 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
     final wide = _isWide;
     return Scaffold(
       backgroundColor: const Color(0xFFF0F6FF),
       body: SafeArea(
         child: wide
-            ? _buildWideLayout()
-            : (_bottomIndex == 0 ? _buildHomeBody() : _buildProfileBody()),
+            ? _buildWideLayout(app)
+            : (_bottomIndex == 0
+                  ? _buildHomeBody(app)
+                  : _buildProfileBody(app)),
       ),
       // FAB hanya di layar kecil; di desktop aksi ada di header.
       floatingActionButton: (!wide && _bottomIndex == 0)
-          ? (widget.isGuest
+          ? (app.isGuest
                 ? FloatingActionButton.extended(
                     onPressed: _joinDialog,
                     icon: const Icon(Icons.vpn_key_outlined),
@@ -273,28 +239,28 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   // ── Layout lebar: sidebar room + panel chat ──
-  Widget _buildWideLayout() {
-    if (_bottomIndex == 1) return _buildProfileBody();
+  Widget _buildWideLayout(AppState app) {
+    if (_bottomIndex == 1) return _buildProfileBody(app);
     return Row(
       children: [
-        SizedBox(width: 400, child: _buildSidebar()),
+        SizedBox(width: 400, child: _buildSidebar(app)),
         const VerticalDivider(width: 1, thickness: 1),
-        Expanded(child: _buildChatPane()),
+        Expanded(child: _buildChatPane(app)),
       ],
     );
   }
 
-  Widget _buildSidebar() {
+  Widget _buildSidebar(AppState app) {
     return Column(
       children: [
-        _buildHeader(),
+        _buildHeader(app),
         Expanded(
           child: TabBarView(
             controller: _tabController,
             children: [
-              _buildRoomList('matkul'),
-              _buildRoomList('organisasi'),
-              _buildRoomList('topik'),
+              _buildRoomList(app, 'matkul'),
+              _buildRoomList(app, 'organisasi'),
+              _buildRoomList(app, 'topik'),
             ],
           ),
         ),
@@ -302,17 +268,17 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildHomeBody() {
+  Widget _buildHomeBody(AppState app) {
     return Column(
       children: [
-        _buildHeader(),
+        _buildHeader(app),
         Expanded(
           child: TabBarView(
             controller: _tabController,
             children: [
-              _buildRoomList('matkul'),
-              _buildRoomList('organisasi'),
-              _buildRoomList('topik'),
+              _buildRoomList(app, 'matkul'),
+              _buildRoomList(app, 'organisasi'),
+              _buildRoomList(app, 'topik'),
             ],
           ),
         ),
@@ -320,7 +286,7 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildChatPane() {
+  Widget _buildChatPane(AppState app) {
     final room = _selectedRoom;
     if (room == null) {
       return const _EmptyChatPane();
@@ -328,22 +294,16 @@ class _HomeScreenState extends State<HomeScreen>
     return ChatRoomScreen(
       key: ValueKey(room.id),
       room: room,
-      isGuest: widget.isGuest,
-      userName: _displayName,
-      isAdmin: _selectedIsAdmin,
       embedded: true,
       onClose: () => setState(() => _selectedRoom = null),
       onRoomDeleted: () {
-        setState(() {
-          _rooms.removeWhere((r) => r.id == room.id);
-          _myRoomIds.remove(room.id);
-          _selectedRoom = null;
-        });
+        app.deleteRoom(room);
+        setState(() => _selectedRoom = null);
       },
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(AppState app) {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       color: const Color(0xFF1E3A8A),
@@ -361,8 +321,8 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
                 child: Center(
                   child: Text(
-                    _displayName.isNotEmpty
-                        ? _displayName[0].toUpperCase()
+                    app.displayName.isNotEmpty
+                        ? app.displayName[0].toUpperCase()
                         : 'G',
                     style: const TextStyle(
                       color: Colors.white,
@@ -378,7 +338,7 @@ class _HomeScreenState extends State<HomeScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Halo, $_displayName! 👋',
+                      'Halo, ${app.displayName}! 👋',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -388,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     ),
                     Text(
-                      widget.isGuest
+                      app.isGuest
                           ? 'Mode Guest – Fitur terbatas'
                           : 'Mahasiswa Aktif',
                       maxLines: 1,
@@ -406,7 +366,7 @@ class _HomeScreenState extends State<HomeScreen>
                 icon: const Icon(Icons.vpn_key_outlined, color: Colors.white),
                 onPressed: _joinDialog,
               ),
-              if (!widget.isGuest)
+              if (!app.isGuest)
                 IconButton(
                   tooltip: 'Buat room',
                   icon: const Icon(
@@ -415,7 +375,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   onPressed: _createDialog,
                 ),
-              if (widget.isGuest)
+              if (app.isGuest)
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
@@ -536,8 +496,8 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildRoomList(String category) {
-    final rooms = _filteredRooms(category);
+  Widget _buildRoomList(AppState app, String category) {
+    final rooms = _filteredRooms(app, category);
     if (rooms.isEmpty) {
       return Center(
         child: Column(
@@ -565,8 +525,8 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildProfileBody() {
-    final myRooms = _rooms.where((r) => _myRoomIds.contains(r.id)).toList();
+  Widget _buildProfileBody(AppState app) {
+    final myRooms = app.myRooms;
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 720),
@@ -602,8 +562,8 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                       child: Center(
                         child: Text(
-                          _displayName.isNotEmpty
-                              ? _displayName[0].toUpperCase()
+                          app.displayName.isNotEmpty
+                              ? app.displayName[0].toUpperCase()
                               : 'G',
                           style: const TextStyle(
                             color: Colors.white,
@@ -619,7 +579,7 @@ class _HomeScreenState extends State<HomeScreen>
                       children: [
                         Flexible(
                           child: Text(
-                            _displayName,
+                            app.displayName,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -629,7 +589,7 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                           ),
                         ),
-                        if (!widget.isGuest)
+                        if (!app.isGuest)
                           IconButton(
                             tooltip: 'Ubah nama',
                             icon: const Icon(
@@ -639,7 +599,7 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                             onPressed: () {
                               final ctrl = TextEditingController(
-                                text: _displayName,
+                                text: app.displayName,
                               );
                               showDialog(
                                 context: context,
@@ -660,9 +620,9 @@ class _HomeScreenState extends State<HomeScreen>
                                     ElevatedButton(
                                       onPressed: () {
                                         if (ctrl.text.trim().isEmpty) return;
-                                        setState(
-                                          () => _displayName = ctrl.text.trim(),
-                                        );
+                                        context.read<AppState>().rename(
+                                              ctrl.text.trim(),
+                                            );
                                         Navigator.pop(ctx);
                                       },
                                       child: const Text('Simpan'),
@@ -681,15 +641,15 @@ class _HomeScreenState extends State<HomeScreen>
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: widget.isGuest
+                        color: app.isGuest
                             ? Colors.orange.withValues(alpha: 0.3)
                             : Colors.green.withValues(alpha: 0.3),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        widget.isGuest ? 'Guest' : 'Mahasiswa Aktif',
+                        app.isGuest ? 'Guest' : 'Mahasiswa Aktif',
                         style: TextStyle(
-                          color: widget.isGuest
+                          color: app.isGuest
                               ? Colors.orange.shade200
                               : Colors.green.shade200,
                           fontSize: 12,
@@ -701,7 +661,7 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ),
               const SizedBox(height: 24),
-              if (widget.isGuest) ...[
+              if (app.isGuest) ...[
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -799,11 +759,14 @@ class _HomeScreenState extends State<HomeScreen>
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: () => Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(builder: (_) => const _BackToWelcome()),
-                    (route) => false,
-                  ),
+                  onPressed: () {
+                    context.read<AppState>().logout();
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+                      (route) => false,
+                    );
+                  },
                   icon: const Icon(Icons.logout, color: Color(0xFFEF4444)),
                   label: const Text(
                     'Keluar',
@@ -878,18 +841,6 @@ class _HomeScreenState extends State<HomeScreen>
         ],
       ),
     );
-  }
-}
-
-// Redirect ke welcome
-class _BackToWelcome extends StatelessWidget {
-  const _BackToWelcome();
-  @override
-  Widget build(BuildContext context) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Navigator.pushReplacementNamed(context, '/');
-    });
-    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }
 

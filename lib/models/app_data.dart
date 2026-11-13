@@ -20,7 +20,40 @@ class AppColors {
   static const unread = Color(0xFFEF4444);
 }
 
-// Model data chat room
+// Warna identitas pengirim; nama yang tidak dikenal memakai warna utama.
+Color colorForSender(String name) {
+  switch (name) {
+    case 'Budi':
+      return const Color(0xFF3B82F6);
+    case 'Sari':
+      return const Color(0xFF10B981);
+    case 'Rina':
+      return const Color(0xFF8B5CF6);
+    case 'Deni':
+      return const Color(0xFFF59E0B);
+    default:
+      return AppColors.primary;
+  }
+}
+
+// Icon & warna default berdasarkan kategori room. Dipakai saat buat room dan
+// saat data dibaca dari JSON, karena icon/color memang tidak ikut disimpan.
+IconData iconForCategory(String category) {
+  switch (category) {
+    case 'matkul':
+      return Icons.book_outlined;
+    case 'organisasi':
+      return Icons.groups_outlined;
+    default:
+      return Icons.topic_outlined;
+  }
+}
+
+Color colorForCategory(String category) => const Color(0xFF3B82F6);
+
+// Model data chat room.
+// Field tampilan (icon, color) tidak ikut diserialisasi; cukup diturunkan dari
+// kategori supaya struktur model siap disambung ke backend nanti.
 class ChatRoom {
   final String id;
   final String name;
@@ -28,11 +61,12 @@ class ChatRoom {
   final String lastMessage;
   final String lastTime;
   final int unreadCount;
-  final int memberCount;
-  final IconData icon;
-  final Color color;
+  final List<String> memberIds; // id user anggota room
+  final String createdById; // id pembuat room = admin
   final String inviteCode; // kode undangan unik per room
   final bool allowGuest; // true = guest boleh kirim pesan
+  final IconData icon;
+  final Color color;
 
   const ChatRoom({
     required this.id,
@@ -41,38 +75,129 @@ class ChatRoom {
     required this.lastMessage,
     required this.lastTime,
     required this.unreadCount,
-    required this.memberCount,
-    required this.icon,
-    required this.color,
+    this.memberIds = const [],
+    this.createdById = '',
+    this.icon = Icons.book_outlined,
+    this.color = const Color(0xFF3B82F6),
     this.inviteCode = '',
     this.allowGuest = false,
   });
+
+  int get memberCount => memberIds.length;
+
+  ChatRoom copyWith({
+    String? lastMessage,
+    String? lastTime,
+    int? unreadCount,
+    List<String>? memberIds,
+    String? createdById,
+    String? inviteCode,
+    bool? allowGuest,
+  }) {
+    return ChatRoom(
+      id: id,
+      name: name,
+      category: category,
+      lastMessage: lastMessage ?? this.lastMessage,
+      lastTime: lastTime ?? this.lastTime,
+      unreadCount: unreadCount ?? this.unreadCount,
+      memberIds: memberIds ?? this.memberIds,
+      createdById: createdById ?? this.createdById,
+      icon: icon,
+      color: color,
+      inviteCode: inviteCode ?? this.inviteCode,
+      allowGuest: allowGuest ?? this.allowGuest,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'category': category,
+    'lastMessage': lastMessage,
+    'lastTime': lastTime,
+    'unreadCount': unreadCount,
+    'memberIds': memberIds,
+    'createdById': createdById,
+    'inviteCode': inviteCode,
+    'allowGuest': allowGuest,
+  };
+
+  factory ChatRoom.fromJson(Map<String, dynamic> json) {
+    final category = (json['category'] ?? 'matkul') as String;
+    return ChatRoom(
+      id: (json['id'] ?? '') as String,
+      name: (json['name'] ?? '') as String,
+      category: category,
+      lastMessage: (json['lastMessage'] ?? '') as String,
+      lastTime: (json['lastTime'] ?? '') as String,
+      unreadCount: (json['unreadCount'] ?? 0) as int,
+      memberIds: (json['memberIds'] as List<dynamic>? ?? const [])
+          .map((e) => e as String)
+          .toList(),
+      createdById: (json['createdById'] ?? '') as String,
+      inviteCode: (json['inviteCode'] ?? '') as String,
+      allowGuest: (json['allowGuest'] ?? false) as bool,
+      icon: iconForCategory(category),
+      color: colorForCategory(category),
+    );
+  }
 }
 
-// Model data pesan
+// Model data pesan. Field tampilan (inisial, warna, isMe) diturunkan di UI
+// dari senderId/senderName, jadi tidak ikut disimpan.
 class ChatMessage {
   final String id;
+  final String senderId;
   final String senderName;
-  final String senderInitial;
-  final Color senderColor;
   final String text;
-  final String time;
-  final bool isMe;
+  final DateTime createdAt;
 
   const ChatMessage({
     required this.id,
+    required this.senderId,
     required this.senderName,
-    required this.senderInitial,
-    required this.senderColor,
     required this.text,
-    required this.time,
-    required this.isMe,
+    required this.createdAt,
   });
+
+  String get senderInitial =>
+      senderName.isNotEmpty ? senderName[0].toUpperCase() : '?';
+
+  // Jam:menit untuk label di bawah bubble.
+  String get timeLabel {
+    final h = createdAt.hour.toString().padLeft(2, '0');
+    final m = createdAt.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  bool isSentBy(String userId) => senderId == userId;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'senderId': senderId,
+    'senderName': senderName,
+    'text': text,
+    'createdAt': createdAt.toIso8601String(),
+  };
+
+  factory ChatMessage.fromJson(Map<String, dynamic> json) => ChatMessage(
+    id: (json['id'] ?? '') as String,
+    senderId: (json['senderId'] ?? '') as String,
+    senderName: (json['senderName'] ?? '') as String,
+    text: (json['text'] ?? '') as String,
+    createdAt:
+        DateTime.tryParse((json['createdAt'] ?? '') as String) ??
+        DateTime.now(),
+  );
 }
 
 // Data dummy chat rooms
 class DummyData {
-  static const List<ChatRoom> rooms = [
+  static List<String> _members(int count) =>
+      List.generate(count, (i) => 'member-$i');
+
+  static final List<ChatRoom> rooms = [
     ChatRoom(
       id: '1',
       name: 'Pemrograman Mobile',
@@ -80,7 +205,7 @@ class DummyData {
       lastMessage: 'Ada yang sudah ngerjain tugas Flutter?',
       lastTime: '10:30',
       unreadCount: 5,
-      memberCount: 48,
+      memberIds: _members(48),
       icon: Icons.phone_android,
       color: Color(0xFF3B82F6),
       inviteCode: 'UT-101',
@@ -92,7 +217,7 @@ class DummyData {
       lastMessage: 'Tugas normalisasi dikumpul besok ya',
       lastTime: '09:15',
       unreadCount: 2,
-      memberCount: 52,
+      memberIds: _members(52),
       icon: Icons.storage,
       color: Color(0xFF8B5CF6),
       inviteCode: 'UT-102',
@@ -104,7 +229,7 @@ class DummyData {
       lastMessage: 'Soal nomor 3 gimana cara ngerjainnya?',
       lastTime: 'Kemarin',
       unreadCount: 0,
-      memberCount: 45,
+      memberIds: _members(45),
       icon: Icons.code,
       color: Color(0xFF10B981),
       inviteCode: 'UT-103',
@@ -116,7 +241,7 @@ class DummyData {
       lastMessage: 'Integral trigonometri yang susah banget',
       lastTime: 'Kemarin',
       unreadCount: 1,
-      memberCount: 60,
+      memberIds: _members(60),
       icon: Icons.calculate,
       color: Color(0xFFF59E0B),
       inviteCode: 'UT-104',
@@ -128,7 +253,7 @@ class DummyData {
       lastMessage: 'Rapat besok jam 14.00 di aula ya',
       lastTime: '11:00',
       unreadCount: 8,
-      memberCount: 30,
+      memberIds: _members(30),
       icon: Icons.groups,
       color: Color(0xFFEF4444),
       inviteCode: 'UT-201',
@@ -140,7 +265,7 @@ class DummyData {
       lastMessage: 'Pendaftaran anggota baru dibuka!',
       lastTime: '08:45',
       unreadCount: 3,
-      memberCount: 120,
+      memberIds: _members(120),
       icon: Icons.school,
       color: Color(0xFF06B6D4),
       inviteCode: 'UT-202',
@@ -152,7 +277,7 @@ class DummyData {
       lastMessage: 'Workshop Arduino minggu depan',
       lastTime: 'Kemarin',
       unreadCount: 0,
-      memberCount: 25,
+      memberIds: _members(25),
       icon: Icons.precision_manufacturing,
       color: Color(0xFFF59E0B),
       inviteCode: 'UT-203',
@@ -164,7 +289,7 @@ class DummyData {
       lastMessage: 'Share cara belajar efektif dong!',
       lastTime: '10:00',
       unreadCount: 12,
-      memberCount: 200,
+      memberIds: _members(200),
       icon: Icons.lightbulb_outline,
       color: Color(0xFF8B5CF6),
       inviteCode: 'UT-301',
@@ -177,7 +302,7 @@ class DummyData {
       lastMessage: 'Ada lowongan magang di startup tech nih',
       lastTime: '09:30',
       unreadCount: 6,
-      memberCount: 180,
+      memberIds: _members(180),
       icon: Icons.work_outline,
       color: Color(0xFF10B981),
       inviteCode: 'UT-302',
@@ -190,7 +315,7 @@ class DummyData {
       lastMessage: 'Judul TA yang bagus itu gimana?',
       lastTime: 'Kemarin',
       unreadCount: 0,
-      memberCount: 95,
+      memberIds: _members(95),
       icon: Icons.article_outlined,
       color: Color(0xFF3B82F6),
       inviteCode: 'UT-303',
@@ -200,97 +325,46 @@ class DummyData {
   static List<ChatRoom> getByCategory(String category) =>
       rooms.where((r) => r.category == category).toList();
 
-  static const List<ChatMessage> dummyMessages = [
-    ChatMessage(
-      id: '1',
-      senderName: 'Budi',
-      senderInitial: 'B',
-      senderColor: Color(0xFF3B82F6),
-      text: 'Halo semua! Ada yang sudah mulai ngerjain tugas Flutter?',
-      time: '09:00',
-      isMe: false,
-    ),
-    ChatMessage(
-      id: '2',
-      senderName: 'Sari',
-      senderInitial: 'S',
-      senderColor: Color(0xFF10B981),
-      text: 'Aku baru mulai install Flutter SDK kemarin',
-      time: '09:05',
-      isMe: false,
-    ),
-    ChatMessage(
-      id: '3',
-      senderName: 'Me',
-      senderInitial: 'M',
-      senderColor: Color(0xFF1E3A8A),
-      text: 'Sudah! Bagian widget yang sedikit membingungkan',
-      time: '09:10',
-      isMe: true,
-    ),
-    ChatMessage(
-      id: '4',
-      senderName: 'Budi',
-      senderInitial: 'B',
-      senderColor: Color(0xFF3B82F6),
-      text: 'Iya betul, widget tree-nya lumayan dalam kalau sudah complex',
-      time: '09:12',
-      isMe: false,
-    ),
-    ChatMessage(
-      id: '5',
-      senderName: 'Rina',
-      senderInitial: 'R',
-      senderColor: Color(0xFF8B5CF6),
-      text: 'Ada tutorial yang recommended nggak? Aku masih bingung StatefulWidget vs StatelessWidget',
-      time: '09:15',
-      isMe: false,
-    ),
-    ChatMessage(
-      id: '6',
-      senderName: 'Me',
-      senderInitial: 'M',
-      senderColor: Color(0xFF1E3A8A),
-      text: 'Coba cek flutter.dev, dokumentasinya lengkap banget!',
-      time: '09:18',
-      isMe: true,
-    ),
-    ChatMessage(
-      id: '7',
-      senderName: 'Sari',
-      senderInitial: 'S',
-      senderColor: Color(0xFF10B981),
-      text: 'Oh iya, ada juga YouTube channel Rivaan Ranawat yang bagus untuk Flutter',
-      time: '09:20',
-      isMe: false,
-    ),
-    ChatMessage(
-      id: '8',
-      senderName: 'Deni',
-      senderInitial: 'D',
-      senderColor: Color(0xFFF59E0B),
-      text: 'Deadline tugasnya kapan ya? Masih ingat tidak?',
-      time: '09:45',
-      isMe: false,
-    ),
-    ChatMessage(
-      id: '9',
-      senderName: 'Me',
-      senderInitial: 'M',
-      senderColor: Color(0xFF1E3A8A),
-      text: 'Kalau tidak salah minggu depan Jumat',
-      time: '09:46',
-      isMe: true,
-    ),
-    ChatMessage(
-      id: '10',
-      senderName: 'Budi',
-      senderInitial: 'B',
-      senderColor: Color(0xFF3B82F6),
-      text: 'Ada yang sudah ngerjain tugas Flutter?',
-      time: '10:30',
-      isMe: false,
-    ),
+  // Waktu dummy "hari ini jam HH:mm" supaya pesan punya createdAt beneran.
+  static DateTime _at(String hhmm) {
+    final p = hhmm.split(':');
+    final now = DateTime.now();
+    return DateTime(
+      now.year,
+      now.month,
+      now.day,
+      int.parse(p[0]),
+      int.parse(p[1]),
+    );
+  }
+
+  static ChatMessage _msg(
+    String id,
+    String name,
+    String text,
+    String time, {
+    bool isMe = false,
+  }) {
+    return ChatMessage(
+      id: id,
+      senderId: isMe ? 'me' : 'u-${name.toLowerCase()}',
+      senderName: name,
+      text: text,
+      createdAt: _at(time),
+    );
+  }
+
+  static final List<ChatMessage> dummyMessages = [
+    _msg('1', 'Budi', 'Halo semua! Ada yang sudah mulai ngerjain tugas Flutter?', '09:00'),
+    _msg('2', 'Sari', 'Aku baru mulai install Flutter SDK kemarin', '09:05'),
+    _msg('3', 'Me', 'Sudah! Bagian widget yang sedikit membingungkan', '09:10', isMe: true),
+    _msg('4', 'Budi', 'Iya betul, widget tree-nya lumayan dalam kalau sudah complex', '09:12'),
+    _msg('5', 'Rina', 'Ada tutorial yang recommended nggak? Aku masih bingung StatefulWidget vs StatelessWidget', '09:15'),
+    _msg('6', 'Me', 'Coba cek flutter.dev, dokumentasinya lengkap banget!', '09:18', isMe: true),
+    _msg('7', 'Sari', 'Oh iya, ada juga YouTube channel Rivaan Ranawat yang bagus untuk Flutter', '09:20'),
+    _msg('8', 'Deni', 'Deadline tugasnya kapan ya? Masih ingat tidak?', '09:45'),
+    _msg('9', 'Me', 'Kalau tidak salah minggu depan Jumat', '09:46', isMe: true),
+    _msg('10', 'Budi', 'Ada yang sudah ngerjain tugas Flutter?', '10:30'),
   ];
 
   // Percakapan contoh per room supaya isi tiap room tidak sama semua.
@@ -301,163 +375,44 @@ class DummyData {
     ChatMessage m(
       int n,
       String name,
-      String initial,
-      Color color,
       String text,
       String time, {
       bool isMe = false,
     }) {
       return ChatMessage(
         id: '$id-$n',
+        senderId: isMe ? 'me' : 'u-${name.toLowerCase()}',
         senderName: name,
-        senderInitial: initial,
-        senderColor: color,
         text: text,
-        time: time,
-        isMe: isMe,
+        createdAt: _at(time),
       );
     }
 
     switch (room.category) {
       case 'matkul':
         return [
-          m(
-            1,
-            'Sari',
-            'S',
-            const Color(0xFF10B981),
-            'Selamat datang di ${room.name} 👋',
-            '08:40',
-          ),
-          m(
-            2,
-            'Budi',
-            'B',
-            const Color(0xFF3B82F6),
-            'Ada yang sudah baca materi minggu ini?',
-            '08:45',
-          ),
-          m(
-            3,
-            'Me',
-            'M',
-            const Color(0xFF1E3A8A),
-            'Sudah, tapi bagian akhir masih belum paham',
-            '08:50',
-            isMe: true,
-          ),
-          m(
-            4,
-            'Rina',
-            'R',
-            const Color(0xFF8B5CF6),
-            'Nanti aku share catatannya ya',
-            '08:52',
-          ),
-          m(
-            5,
-            'Deni',
-            'D',
-            const Color(0xFFF59E0B),
-            'Tugas kelompok dikumpul kapan?',
-            '09:10',
-          ),
-          m(
-            6,
-            'Sari',
-            'S',
-            const Color(0xFF10B981),
-            'Minggu depan Jumat, jangan lupa ya',
-            '09:12',
-          ),
+          m(1, 'Sari', 'Selamat datang di ${room.name} 👋', '08:40'),
+          m(2, 'Budi', 'Ada yang sudah baca materi minggu ini?', '08:45'),
+          m(3, 'Me', 'Sudah, tapi bagian akhir masih belum paham', '08:50', isMe: true),
+          m(4, 'Rina', 'Nanti aku share catatannya ya', '08:52'),
+          m(5, 'Deni', 'Tugas kelompok dikumpul kapan?', '09:10'),
+          m(6, 'Sari', 'Minggu depan Jumat, jangan lupa ya', '09:12'),
         ];
       case 'organisasi':
         return [
-          m(
-            1,
-            'Rina',
-            'R',
-            const Color(0xFF8B5CF6),
-            'Halo semua, ini room ${room.name}',
-            '08:30',
-          ),
-          m(
-            2,
-            'Budi',
-            'B',
-            const Color(0xFF3B82F6),
-            'Rapat rutin besok jam 14.00 di aula ya',
-            '08:35',
-          ),
-          m(
-            3,
-            'Me',
-            'M',
-            const Color(0xFF1E3A8A),
-            'Siap, aku hadir',
-            '08:37',
-            isMe: true,
-          ),
-          m(
-            4,
-            'Deni',
-            'D',
-            const Color(0xFFF59E0B),
-            'Yang belum bisa hadir tolong kabari',
-            '08:40',
-          ),
-          m(
-            5,
-            'Sari',
-            'S',
-            const Color(0xFF10B981),
-            'Nanti aku catat hasil rapatnya',
-            '08:44',
-          ),
+          m(1, 'Rina', 'Halo semua, ini room ${room.name}', '08:30'),
+          m(2, 'Budi', 'Rapat rutin besok jam 14.00 di aula ya', '08:35'),
+          m(3, 'Me', 'Siap, aku hadir', '08:37', isMe: true),
+          m(4, 'Deni', 'Yang belum bisa hadir tolong kabari', '08:40'),
+          m(5, 'Sari', 'Nanti aku catat hasil rapatnya', '08:44'),
         ];
       default:
         return [
-          m(
-            1,
-            'Deni',
-            'D',
-            const Color(0xFFF59E0B),
-            'Halo! Ini room ${room.name}',
-            '09:00',
-          ),
-          m(
-            2,
-            'Sari',
-            'S',
-            const Color(0xFF10B981),
-            'Boleh share pengalaman kalian di sini?',
-            '09:05',
-          ),
-          m(
-            3,
-            'Me',
-            'M',
-            const Color(0xFF1E3A8A),
-            'Boleh banget, nanti aku tulis juga',
-            '09:08',
-            isMe: true,
-          ),
-          m(
-            4,
-            'Budi',
-            'B',
-            const Color(0xFF3B82F6),
-            'Terima kasih infonya, sangat membantu',
-            '09:15',
-          ),
-          m(
-            5,
-            'Rina',
-            'R',
-            const Color(0xFF8B5CF6),
-            'Kalau ada yang mau ditanyakan, langsung tulis aja',
-            '09:20',
-          ),
+          m(1, 'Deni', 'Halo! Ini room ${room.name}', '09:00'),
+          m(2, 'Sari', 'Boleh share pengalaman kalian di sini?', '09:05'),
+          m(3, 'Me', 'Boleh banget, nanti aku tulis juga', '09:08', isMe: true),
+          m(4, 'Budi', 'Terima kasih infonya, sangat membantu', '09:15'),
+          m(5, 'Rina', 'Kalau ada yang mau ditanyakan, langsung tulis aja', '09:20'),
         ];
     }
   }
