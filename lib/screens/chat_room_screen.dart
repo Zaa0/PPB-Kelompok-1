@@ -30,6 +30,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final TextEditingController _msgCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
   late final AppState _app = context.read<AppState>();
+  int _lastMsgCount = 0;
+  bool _pinnedBottom = true; // sedang di posisi chat paling bawah?
 
   @override
   void initState() {
@@ -38,6 +40,28 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _app.startPolling(widget.room);
     unawaited(_app.loadMessages(widget.room));
     unawaited(_app.loadMembers(widget.room));
+    _scrollCtrl.addListener(_onScroll);
+  }
+
+  // Pantau posisi user: kalau lagi scroll ke atas, jangan paksa turun.
+  void _onScroll() {
+    if (!_scrollCtrl.hasClients) return;
+    final pos = _scrollCtrl.position;
+    _pinnedBottom = pos.maxScrollExtent - pos.pixels < 120;
+  }
+
+  void _scrollToBottom({bool animate = false}) {
+    if (!_scrollCtrl.hasClients) return;
+    final pos = _scrollCtrl.position;
+    if (animate) {
+      _scrollCtrl.animateTo(
+        pos.maxScrollExtent,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    } else {
+      _scrollCtrl.jumpTo(pos.maxScrollExtent);
+    }
   }
 
   @override
@@ -53,15 +77,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     if (text.isEmpty) return;
     await _app.sendMessage(widget.room, text);
     _msgCtrl.clear();
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (_scrollCtrl.hasClients) {
-        _scrollCtrl.animateTo(
-          _scrollCtrl.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    });
   }
 
   // Guest diarahkan ke layar login, bukan sekadar kembali.
@@ -75,6 +90,26 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
+    final messages = app.messagesFor(widget.room);
+
+    // Auto-scroll ala WA: saat chat dibuka langsung ke pesan terbaru;
+    // pesan baru turun mengikuti kalau kita sedang di posisi paling bawah
+    // (atau pesannya dari kita sendiri); kalau lagi baca chat di atas, tetap.
+    if (messages.length != _lastMsgCount) {
+      final firstLoad = _lastMsgCount == 0;
+      final pesanDariSaya =
+          messages.isNotEmpty && messages.last.isSentBy(app.userId);
+      final adaPesanBaru =
+          messages.length > _lastMsgCount && _lastMsgCount > 0;
+      _lastMsgCount = messages.length;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (firstLoad || pesanDariSaya || (adaPesanBaru && _pinnedBottom)) {
+          _scrollToBottom(animate: pesanDariSaya || adaPesanBaru);
+        }
+      });
+    }
+
     final body = _buildBody(app);
     if (widget.embedded) {
       return Column(
