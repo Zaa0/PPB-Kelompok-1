@@ -37,6 +37,8 @@ class LocalRepository implements AppRepository {
       return SessionData(
         isGuest: (json['isGuest'] ?? false) as bool,
         displayName: (json['displayName'] ?? 'User') as String,
+        realName: json['realName'] as String?,
+        nim: json['nim'] as String?,
         token: json['token'] as String?,
         userId: json['userId'] as String?,
       );
@@ -52,6 +54,8 @@ class LocalRepository implements AppRepository {
       jsonEncode({
         'isGuest': session.isGuest,
         'displayName': session.displayName,
+        'realName': session.realName,
+        'nim': session.nim,
         'token': session.token,
         'userId': session.userId,
       }),
@@ -137,4 +141,30 @@ class LocalRepository implements AppRepository {
   Future<void> saveMessages(String roomId, List<ChatMessage> messages) async {
     await _messages?.put(roomId, messages.map((m) => m.toJson()).toList());
   }
+
+  @override
+  Future<String?> loadSetting(String key) async {
+    return _prefs?.getString(key);
+  }
+
+  @override
+  Future<void> saveSetting(String key, String value) async {
+    await _prefs?.setString(key, value);
+  }
+
+  @override
+  Future<void> clearAllData() async {
+    await _prefs?.remove(_sessionKey);
+    await _prefs?.remove(_accountsKey);
+    await _prefs?.remove(_settingTheme);
+    await _prefs?.remove(_settingNotif);
+    await _rooms?.clear();
+    await _messages?.clear();
+  }
+
+  static const _settingTheme = 'unitalk_theme';
+  static const _settingNotif = 'unitalk_notif';
+
+  static const themeKey = _settingTheme;
+  static const notifKey = _settingNotif;
 }

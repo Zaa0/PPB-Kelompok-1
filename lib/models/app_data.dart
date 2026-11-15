@@ -152,6 +152,12 @@ class ChatMessage {
   final String senderName;
   final String text;
   final DateTime createdAt;
+  // Lampiran (foto/dokumen) - opsional.
+  final String? attachmentUrl;
+  final String? attachmentName;
+  final bool attachmentIsImage;
+  // true = pesan masih lokal (dikirim saat offline, belum terkonfirmasi server).
+  final bool pending;
 
   const ChatMessage({
     required this.id,
@@ -159,6 +165,10 @@ class ChatMessage {
     required this.senderName,
     required this.text,
     required this.createdAt,
+    this.attachmentUrl,
+    this.attachmentName,
+    this.attachmentIsImage = false,
+    this.pending = false,
   });
 
   String get senderInitial =>
@@ -179,6 +189,10 @@ class ChatMessage {
     'senderName': senderName,
     'text': text,
     'createdAt': createdAt.toIso8601String(),
+    'attachmentUrl': attachmentUrl,
+    'attachmentName': attachmentName,
+    'attachmentIsImage': attachmentIsImage,
+    'pending': pending,
   };
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) => ChatMessage(
@@ -187,24 +201,71 @@ class ChatMessage {
     senderName: (json['senderName'] ?? '') as String,
     text: (json['text'] ?? '') as String,
     createdAt:
-        DateTime.tryParse((json['createdAt'] ?? '') as String) ??
+        DateTime.tryParse((json['createdAt'] ?? '') as String)?.toLocal() ??
         DateTime.now(),
+    attachmentUrl: json['attachmentUrl'] as String?,
+    attachmentName: json['attachmentName'] as String?,
+    attachmentIsImage: (json['attachmentIsImage'] ?? false) as bool,
+    pending: (json['pending'] ?? false) as bool,
   );
 }
 
 // Anggota room (dari API saat online, atau contoh saat offline).
 class RoomMember {
   final String id;
-  final String name;
+  final String name; // nama tampil (alias)
+  final String realName; // nama panjang asli
+  final String? nim;
   final bool isAdmin;
   final bool isGuest;
 
   const RoomMember({
     required this.id,
     required this.name,
+    this.realName = '',
+    this.nim,
     this.isAdmin = false,
     this.isGuest = false,
   });
+}
+
+
+// Ikon & warna room dipilih otomatis dari nama room, biar tiap room
+// punya identitas sendiri (bukan semua ikon buku yang sama).
+const List<IconData> kRoomIconPool = [
+  Icons.menu_book_outlined,
+  Icons.calculate_outlined,
+  Icons.terminal_outlined,
+  Icons.biotech_outlined,
+  Icons.groups_2_outlined,
+  Icons.campaign_outlined,
+  Icons.sports_esports_outlined,
+  Icons.work_outline,
+  Icons.mic_external_on_outlined,
+  Icons.favorite_outline,
+  Icons.lightbulb_outline,
+  Icons.school_outlined,
+];
+
+const List<Color> kRoomColorPool = [
+  Color(0xFF3B82F6),
+  Color(0xFF8B5CF6),
+  Color(0xFFEC4899),
+  Color(0xFFEF4444),
+  Color(0xFFF59E0B),
+  Color(0xFF10B981),
+  Color(0xFF06B6D4),
+  Color(0xFF6366F1),
+];
+
+IconData iconForRoomName(String name) {
+  final i = name.hashCode.abs() % kRoomIconPool.length;
+  return kRoomIconPool[i];
+}
+
+Color colorForRoomName(String name) {
+  final i = name.hashCode.abs() % kRoomColorPool.length;
+  return kRoomColorPool[i];
 }
 
 // Data dummy chat rooms

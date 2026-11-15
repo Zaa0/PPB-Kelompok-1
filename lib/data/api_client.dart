@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'dart:typed_data';
 
 import '../config/app_config.dart';
 import '../models/app_data.dart';
@@ -19,7 +20,9 @@ class ApiException implements Exception {
 class AuthResult {
   final String token;
   final int userId;
-  final String name;
+  final String name; // nama tampil (alias kalau ada)
+  final String realName; // nama panjang asli
+  final String? nim;
   final String? email;
   final bool isGuest;
 
@@ -27,18 +30,31 @@ class AuthResult {
     required this.token,
     required this.userId,
     required this.name,
+    required this.realName,
+    required this.nim,
     required this.email,
     required this.isGuest,
   });
 }
 
-// Room dari API: model ChatRoom + flag hak akses untuk user sekarang.
+// Room dari API: model ChatRoom + flag hak akses untuk user sekarang
+// + info pesan terakhir (buat deteksi belum dibaca & banner).
 class ApiRoom {
   final ChatRoom room;
   final bool isAdmin;
   final bool isMember;
+  final int? lastSenderId;
+  final String? lastSenderName;
+  final DateTime? lastAt;
 
-  const ApiRoom({required this.room, required this.isAdmin, required this.isMember});
+  const ApiRoom({
+    required this.room,
+    required this.isAdmin,
+    required this.isMember,
+    this.lastSenderId,
+    this.lastSenderName,
+    this.lastAt,
+  });
 }
 
 class ApiClient {
@@ -55,13 +71,19 @@ class ApiClient {
 
   Future<AuthResult> register({
     required String name,
+    required String nim,
     required String email,
     required String password,
   }) async {
     final data = await _call(
       'POST',
       'register',
-      body: {'name': name, 'email': email, 'password': password},
+      body: {
+        'name': name,
+        'nim': nim,
+        'email': email,
+        'password': password,
+      },
     );
     return _authFrom(data as Map<String, dynamic>);
   }
@@ -94,13 +116,16 @@ class ApiClient {
       token: token,
       userId: (user['id'] as num).toInt(),
       name: (user['name'] ?? 'User') as String,
+      realName: (user['real_name'] ?? user['name'] ?? 'User') as String,
+      nim: user['nim'] as String?,
       email: user['email'] as String?,
       isGuest: user['is_guest'] == true,
     );
   }
 
-  Future<void> updateName(String token, String name) async {
-    await _call('PATCH', 'me', token: token, body: {'name': name});
+  // Ubah NAMA TAMPIL (alias); nama asli & NIM tetap.
+  Future<void> updateAlias(String token, String alias) async {
+    await _call('PATCH', 'me', token: token, body: {'alias': alias});
   }
 
   // ── Room ──
@@ -151,7 +176,50 @@ class ApiClient {
     return list.map((j) => _messageFrom(j as Map<String, dynamic>)).toList();
   }
 
-  Future<ChatMessage> sendMessage(String token, String roomId, String text) async {
+  Future<ChatMessage> sendMessage(
+    String token,
+    String roomId,
+    String text, {
+    Uint8List? fileBytes,
+    String? fileName,
+  }) async {
+    if (fileBytes != null) {
+      // Multipart untuk lampiran (foto/dokumen).
+      final uri = Uri.parse('$_base/rooms/$roomId/messages');
+      final req = http.MultipartRequest('POST', uri)
+        ..headers['Authorization'] = 'Bearer $token'
+        ..headers['Accept'] = 'application/json'
+        ..fields['text'] = text
+        ..files.add(
+          http.MultipartFile.fromBytes(
+            'file',
+            fileBytes,
+            filename: fileName ?? 'lampiran',
+          ),
+        );
+      http.Response res;
+      try {
+        final streamed = await req.send().timeout(_timeout);
+        res = await http.Response.fromStream(streamed);
+      } catch (_) {
+        throw ApiException(
+          'Tidak bisa terhubung ke server. Pastikan backend sudah jalan.',
+        );
+      }
+      if (res.statusCode >= 400) {
+        String message = 'Gagal mengirim lampiran (kode ${res.statusCode})';
+        try {
+          final j = jsonDecode(res.body);
+          if (j is Map && j['message'] != null) message = j['message'].toString();
+        } catch (_) {}
+        throw ApiException(message, res.statusCode);
+      }
+      final data = jsonDecode(res.body);
+      return _messageFrom(
+        (data as Map<String, dynamic>)['message'] as Map<String, dynamic>,
+      );
+    }
+
     final data = await _call(
       'POST',
       'rooms/$roomId/messages',
@@ -174,6 +242,8 @@ class ApiClient {
         .map((j) => RoomMember(
               id: '${(j as Map<String, dynamic>)['id']}',
               name: (j['name'] ?? 'User') as String,
+              realName: (j['real_name'] ?? j['name'] ?? 'User') as String,
+              nim: j['nim'] as String?,
               isAdmin: j['is_admin'] == true,
               isGuest: j['is_guest'] == true,
             ))
@@ -192,6 +262,8 @@ class ApiClient {
       token: (data['token'] ?? '') as String,
       userId: (user['id'] as num).toInt(),
       name: (user['name'] ?? 'User') as String,
+      realName: (user['real_name'] ?? user['name'] ?? 'User') as String,
+      nim: user['nim'] as String?,
       email: user['email'] as String?,
       isGuest: user['is_guest'] == true,
     );
@@ -203,6 +275,9 @@ class ApiClient {
     return ApiRoom(
       isAdmin: j['is_admin'] == true,
       isMember: j['is_member'] == true,
+      lastSenderId: last?['sender_id'] == null ? null : (last!['sender_id'] as num).toInt(),
+      lastSenderName: last?['sender_name'] as String?,
+      lastAt: DateTime.tryParse((last?['created_at'] ?? '') as String)?.toLocal(),
       room: ChatRoom(
         id: '${j['id']}',
         name: (j['name'] ?? '') as String,
@@ -214,8 +289,8 @@ class ApiClient {
             .map((e) => '$e')
             .toList(),
         createdById: '${j['created_by'] ?? ''}',
-        icon: iconForCategory(category),
-        color: colorForCategory(category),
+        icon: iconForRoomName(j['name'] ?? ''),
+        color: colorForRoomName(j['name'] ?? ''),
         inviteCode: (j['invite_code'] ?? '') as String,
         allowGuest: j['allow_guest'] == true,
       ),

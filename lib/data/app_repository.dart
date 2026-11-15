@@ -4,13 +4,17 @@ import '../models/app_data.dart';
 // ikut disimpan supaya user tidak login ulang setiap buka aplikasi.
 class SessionData {
   final bool isGuest;
-  final String displayName;
+  final String displayName; // nama tampil (alias)
+  final String? realName; // nama panjang asli
+  final String? nim;
   final String? token;
   final String? userId;
 
   const SessionData({
     required this.isGuest,
     required this.displayName,
+    this.realName,
+    this.nim,
     this.token,
     this.userId,
   });
@@ -38,4 +42,11 @@ abstract class AppRepository {
 
   Future<List<ChatMessage>?> loadMessages(String roomId);
   Future<void> saveMessages(String roomId, List<ChatMessage> messages);
+
+  // Pengaturan kecil (tema, notifikasi) berbasis string.
+  Future<String?> loadSetting(String key);
+  Future<void> saveSetting(String key, String value);
+
+  // Bersihkan seluruh data lokal (cache + sesi + pengaturan).
+  Future<void> clearAllData();
 }

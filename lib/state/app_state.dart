@@ -1,17 +1,20 @@
 import 'dart:async';
 
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../data/api_client.dart';
 import '../data/app_repository.dart';
+import '../data/local_repository.dart';
 import '../models/app_data.dart';
+import '../services/notifications.dart';
 
 // State terpusat aplikasi: identitas user/guest, daftar room, membership,
 // dan isi chat per room. Screens tinggal konsumsi lewat provider.
 //
 // Ada dua mode yang jalan otomatis:
 //  - ONLINE (api disediakan): auth & data lewat REST API Laravel, hasil
-//    tetap dicache lokal (offline-first), dan polling tiap 3 detik
+//    tetap dicache lokal (offline-first), dan polling tiap 1 detik
 //    mengambil pesan baru saat chat dibuka.
 //  - OFFLINE (tanpa api, atau API tidak terjangkau): semua in-memory /
 //    cache lokal dengan data dummy, persis perilaku versi mock.
@@ -26,7 +29,9 @@ class AppState extends ChangeNotifier {
 
   bool _hasSession = false;
   bool _isGuest = false;
-  String _displayName = 'User';
+  String _displayName = 'User'; // nama tampil (alias)
+  String _realName = 'User'; // nama panjang asli (tidak bisa diubah)
+  String _nim = ''; // NIM (fix, tidak bisa diubah)
   String _currentUserId = 'me';
   String? _token;
 
@@ -35,6 +40,8 @@ class AppState extends ChangeNotifier {
   bool get isOnline => _api != null;
   String get userId => _currentUserId;
   String get displayName => _displayName;
+  String get realName => _realName;
+  String get nim => _nim;
 
   // Loading/error state (syarat RPS).
   bool _loadingRooms = false;
@@ -46,13 +53,52 @@ class AppState extends ChangeNotifier {
   Set<String> _myRoomIds = {}; // admin = pembuat room
   Set<String> _joinedIds = {};
   final Map<String, List<ChatMessage>> _messagesByRoom = {};
-  final Map<String, List<RoomMember>> _membersByRoom = {};
+  final Map<String, List<RoomMember>> _membersByRoom = {}; // mock daftar nama
   final Map<String, int> _lastMessageId = {}; // polling ?after=
+  final Map<String, int> _unreadByRoom = {}; // pesan belum dibaca per room
+  final Map<String, DateTime> _lastSeen = {}; // terakhir dilihat per room
+  Map<String, String>? _banner; // popup pesan baru di atas layar
+  String? _openRoomId; // room yang sedang dibuka (polling aktif di sini)
 
   int _seq = 0; // pengaman id biar tidak bentrok
   Timer? _pollTimer;
+  Timer? _roomsTimer;
+  Timer? _bannerTimer;
+  String? _lastRoomsSig; // penanda perubahan daftar room (perf)
 
   List<ChatRoom> get rooms => List.unmodifiable(_rooms);
+  Map<String, String>? get banner => _banner;
+  int unreadFor(String roomId) => _unreadByRoom[roomId] ?? 0;
+
+  // Pengaturan tampilan & notifikasi (disimpan lokal).
+  ThemeMode _themeMode = ThemeMode.system;
+  ThemeMode get themeMode => _themeMode;
+  bool _notifEnabled = true;
+  bool get notifEnabled => _notifEnabled;
+
+  void setThemeMode(ThemeMode mode) {
+    _themeMode = mode;
+    unawaited(_repo?.saveSetting(LocalRepository.themeKey, mode.name));
+    notifyListeners();
+  }
+
+  void setNotifEnabled(bool aktif) {
+    _notifEnabled = aktif;
+    unawaited(_repo?.saveSetting(LocalRepository.notifKey, aktif ? '1' : '0'));
+    notifyListeners();
+  }
+
+  void clearUnread(String roomId) {
+    if (_unreadByRoom.remove(roomId) != null) notifyListeners();
+  }
+
+  void clearBanner() {
+    if (_banner != null) {
+      _bannerTimer?.cancel();
+      _banner = null;
+      notifyListeners();
+    }
+  }
 
   List<ChatRoom> get myRooms =>
       _rooms.where((r) => _myRoomIds.contains(r.id)).toList();
@@ -72,6 +118,8 @@ class AppState extends ChangeNotifier {
       _hasSession = true;
       _isGuest = session.isGuest;
       _displayName = session.displayName;
+      if (session.realName != null) _realName = session.realName!;
+      if (session.nim != null) _nim = session.nim!;
       _token = session.token;
       if (session.userId != null) _currentUserId = session.userId!;
     }
@@ -87,6 +135,16 @@ class AppState extends ChangeNotifier {
       final msgs = await repo.loadMessages(room.id);
       if (msgs != null) _messagesByRoom[room.id] = msgs;
     }
+    // Muat pengaturan tema & notifikasi.
+    final theme = await repo.loadSetting(LocalRepository.themeKey);
+    if (theme != null) {
+      _themeMode = ThemeMode.values.firstWhere(
+        (m) => m.name == theme,
+        orElse: () => ThemeMode.system,
+      );
+    }
+    final notif = await repo.loadSetting(LocalRepository.notifKey);
+    if (notif != null) _notifEnabled = notif == '1';
 
     // Sesi online divalidasi di background: kalau token masih valid,
     // data langsung di-refresh dari API.
@@ -99,13 +157,28 @@ class AppState extends ChangeNotifier {
     try {
       final me = await _api!.me(_token!);
       _displayName = me.name;
+      _realName = me.realName;
+      _nim = me.nim ?? '';
       _isGuest = me.isGuest;
       _currentUserId = '${me.userId}';
       _offline = false;
       await refreshRooms(silent: true);
+      _startRoomRefresh();
     } on ApiException catch (e) {
       _handleApiError(e);
     }
+  }
+
+  // Refresh daftar room tiap 5 detik saat online: room card selalu segar
+  // (pesan terakhir, jumlah anggota) dan badge/banner belum dibaca jalan.
+  void _startRoomRefresh() {
+    _roomsTimer?.cancel();
+    if (_api == null || _token == null) return;
+    _roomsTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_useApi && hasSession) {
+        unawaited(refreshRooms(silent: true));
+      }
+    });
   }
 
   // Token mati (401) = paksa keluar dari sesi; selain itu tandai offline.
@@ -125,8 +198,18 @@ class AppState extends ChangeNotifier {
 
   // ── Auth via API (dipakai layar login saat online) ──
 
-  Future<void> registerAndStart(String name, String email, String password) async {
-    final res = await _api!.register(name: name, email: email, password: password);
+  Future<void> registerAndStart(
+    String name,
+    String email,
+    String password, {
+    required String nim,
+  }) async {
+    final res = await _api!.register(
+      name: name,
+      nim: nim,
+      email: email,
+      password: password,
+    );
     _applyAuth(res);
     await refreshRooms(silent: true);
   }
@@ -153,7 +236,10 @@ class AppState extends ChangeNotifier {
     _hasSession = true;
     _isGuest = res.isGuest;
     _displayName = res.name;
+    _realName = res.realName;
+    _nim = res.nim ?? '';
     _saveSession();
+    _startRoomRefresh();
     notifyListeners();
   }
 
@@ -196,24 +282,30 @@ class AppState extends ChangeNotifier {
     _displayName = 'User';
     _currentUserId = 'me';
     stopPolling();
+    _roomsTimer?.cancel();
+    _bannerTimer?.cancel();
+    _banner = null;
+    _unreadByRoom.clear();
+    _lastSeen.clear();
+    _lastRoomsSig = null;
     _saveSession(clear: true);
     notifyListeners();
   }
 
-  void rename(String name) {
-    final n = name.trim();
+  void rename(String alias) {
+    final n = alias.trim();
     if (n.isEmpty) return;
     _displayName = n;
     _saveSession();
     notifyListeners();
     if (_api != null && _token != null) {
-      unawaited(_updateNameOnServer(n));
+      unawaited(_updateAliasOnServer(n));
     }
   }
 
-  Future<void> _updateNameOnServer(String name) async {
+  Future<void> _updateAliasOnServer(String alias) async {
     try {
-      await _api!.updateName(_token!, name);
+      await _api!.updateAlias(_token!, alias);
     } on ApiException catch (e) {
       _handleApiError(e);
     }
@@ -236,18 +328,32 @@ class AppState extends ChangeNotifier {
       _loadingRooms = true;
       notifyListeners();
     }
+    var berubah = false;
     try {
       final list = await _api.fetchRooms(_token!);
+      // Perf: silent refresh tidak memancing rebuild kalau tidak ada yang
+      // berubah (sig = gabungan identitas tiap room dari server).
+      final sig = list
+          .map(
+            (r) =>
+                '${r.room.id}:${r.room.lastMessage}:${r.room.memberCount}:'
+                '${r.lastSenderId}',
+          )
+          .join('|');
+      berubah = sig != _lastRoomsSig;
       _rooms = list.map((r) => r.room).toList();
       _myRoomIds = {for (final r in list) if (r.isAdmin) r.room.id};
       _joinedIds = {for (final r in list) if (r.isMember) r.room.id};
+      _lastRoomsSig = sig;
       _offline = false;
-      _saveRooms();
+      _detectUnread(list);
+      if (berubah) _saveRooms();
     } on ApiException catch (e) {
       _handleApiError(e);
     } finally {
       _loadingRooms = false;
-      notifyListeners();
+      // Rebuild hanya kalau ada perubahan data, bukan tiap siklus refresh.
+      if (berubah || !silent || _banner != null) notifyListeners();
     }
   }
 
@@ -371,6 +477,8 @@ class AppState extends ChangeNotifier {
       final msgs = await _api!.fetchMessages(_token!, room.id);
       _messagesByRoom[room.id] = msgs;
       _trackLastMessageId(room.id, msgs);
+      _lastSeen[room.id] = DateTime.now();
+      _unreadByRoom.remove(room.id);
       _saveMessages(room.id);
       _offline = false;
       notifyListeners();
@@ -379,30 +487,43 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> sendMessage(ChatRoom room, String text) async {
+  Future<bool> sendMessage(
+    ChatRoom room,
+    String text, {
+    Uint8List? attachmentBytes,
+    String? attachmentName,
+  }) async {
     final t = text.trim();
-    if (t.isEmpty) return;
+    if (t.isEmpty && attachmentBytes == null) return true;
     final msgs = messagesFor(room);
+    final teksPesan = t.isNotEmpty ? t : 'Mengirim lampiran';
 
     if (_useApi) {
       try {
-        final m = await _api!.sendMessage(_token!, room.id, t);
+        final m = await _api!.sendMessage(
+          _token!,
+          room.id,
+          t,
+          fileBytes: attachmentBytes,
+          fileName: attachmentName,
+        );
         msgs.add(m);
         _trackLastMessageId(room.id, [m]);
-        _bumpRoomLastMessage(room.id, t);
+        _lastSeen[room.id] = m.createdAt;
+        _bumpRoomLastMessage(room.id, teksPesan);
         _saveMessages(room.id);
         _offline = false;
         notifyListeners();
-        return;
+        return true;
       } on ApiException catch (e) {
         // Kirim gagal → kalau token mati, sesi diakhiri;
-        // kalau server mati, simpan lokal saja + tandai offline.
+        // kalau server mati dan ada lampiran, tidak bisa disimpan lokal.
         _handleApiError(e);
-        if (e.statusCode == 401) return;
+        if (e.statusCode == 401 || attachmentBytes != null) return false;
       }
     }
 
-    // Mock / fallback offline.
+    // Mock / fallback offline (hanya teks; lampiran tidak didukung offline).
     msgs.add(
       ChatMessage(
         id: 'm${DateTime.now().millisecondsSinceEpoch}-${_seq++}',
@@ -410,12 +531,21 @@ class AppState extends ChangeNotifier {
         senderName: _displayName,
         text: t,
         createdAt: DateTime.now(),
+        pending: true,
       ),
     );
-    _bumpRoomLastMessage(room.id, t);
+    _bumpRoomLastMessage(room.id, teksPesan);
     _saveMessages(room.id);
     _saveRooms();
     notifyListeners();
+    return true;
+  }
+
+  // Balasan yang masuk lewat tombol "Balas" di notifikasi (Android/Windows).
+  Future<void> replyFromNotification(String roomId, String pesan) async {
+    final match = _rooms.where((r) => r.id == roomId).toList();
+    if (match.isEmpty) return;
+    await sendMessage(match.first, pesan);
   }
 
   Future<void> deleteMessage(ChatRoom room, ChatMessage message) async {
@@ -431,17 +561,19 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ── Polling: ambil pesan baru tiap 3 detik selama chat dibuka ──
+  // ── Polling: ambil pesan baru tiap 1 detik selama chat dibuka ──
 
   void startPolling(ChatRoom room) {
     _pollTimer?.cancel();
+    _openRoomId = room.id;
     if (_api == null || _token == null) return;
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) => _poll(room.id));
+    _pollTimer = Timer.periodic(const Duration(seconds: 1), (_) => _poll(room.id));
   }
 
   void stopPolling() {
     _pollTimer?.cancel();
     _pollTimer = null;
+    _openRoomId = null;
   }
 
   Future<void> _poll(String roomId) async {
@@ -532,6 +664,82 @@ class AppState extends ChangeNotifier {
     if (_useApi) unawaited(refreshRooms(silent: true));
   }
 
+  // Deteksi pesan baru di room yang tidak sedang dibuka: naikkan badge
+  // belum dibaca dan tampilkan banner di atas layar.
+  void _detectUnread(List<ApiRoom> list) {
+    final nol = DateTime.fromMillisecondsSinceEpoch(0);
+    for (final r in list) {
+      final at = r.lastAt;
+      if (at == null || r.lastSenderId == null) continue;
+
+      final dariSaya = '${r.lastSenderId}' == userId;
+      final sudahDilihat =
+          !at.isAfter(_lastSeen[r.room.id] ?? nol) ||
+              r.room.id == _openRoomId;
+      if (dariSaya || sudahDilihat) {
+        _lastSeen[r.room.id] = at;
+        continue;
+      }
+
+      _unreadByRoom[r.room.id] = (_unreadByRoom[r.room.id] ?? 0) + 1;
+      _lastSeen[r.room.id] = at;
+      _bannerTimer?.cancel();
+      _banner = {
+        'roomId': r.room.id,
+        'roomName': r.room.name,
+        'sender': r.lastSenderName ?? 'Guest',
+        'text': r.room.lastMessage,
+      };
+      _bannerTimer = Timer(const Duration(seconds: 4), () {
+        _banner = null;
+        notifyListeners();
+      });
+      // Notifikasi sistem (Android/Windows), kalau diaktifkan di pengaturan.
+      if (_notifEnabled) {
+        unawaited(showMessageNotification(
+          roomId: r.room.id,
+          roomName: r.room.name,
+          sender: r.lastSenderName ?? 'Guest',
+          text: r.room.lastMessage,
+        ));
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _roomsTimer?.cancel();
+    _bannerTimer?.cancel();
+    super.dispose();
+  }
+
+  // Bersihkan seluruh data lokal (dipakai tombol "Bersihkan data" di
+  // pengaturan) lalu kembali ke kondisi awal seperti baru di-install.
+  Future<void> resetLocalData() async {
+    stopPolling();
+    _roomsTimer?.cancel();
+    _bannerTimer?.cancel();
+    await _repo?.clearAllData();
+    _rooms = List.from(DummyData.rooms);
+    _messagesByRoom.clear();
+    _membersByRoom.clear();
+    _unreadByRoom.clear();
+    _lastSeen.clear();
+    _lastMessageId.clear();
+    _myRoomIds = {};
+    _joinedIds = {};
+    _lastRoomsSig = null;
+    _banner = null;
+    _token = null;
+    _hasSession = false;
+    _isGuest = false;
+    _displayName = 'User';
+    _currentUserId = 'me';
+    _saveSession(clear: true);
+    notifyListeners();
+  }
+
   // ── Akun mock (dipakai layar login saat offline) ──
 
   Future<String?> lookupAccountName(String email) async {
@@ -559,6 +767,8 @@ class AppState extends ChangeNotifier {
         SessionData(
           isGuest: _isGuest,
           displayName: _displayName,
+          realName: _realName,
+          nim: _nim,
           token: _token,
           userId: _currentUserId,
         ),

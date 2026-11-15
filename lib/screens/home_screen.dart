@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/api_client.dart';
+import '../theme/chat_theme.dart';
 import '../models/app_data.dart';
 import '../state/app_state.dart';
 import 'chat_room_screen.dart';
+import 'settings_screen.dart';
 import 'welcome_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -25,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen>
   int _bottomIndex = 0;
   String _searchQuery = '';
   ChatRoom? _selectedRoom;
+  bool _fabOpen = false; // menu animasi FAB terbuka?
 
   @override
   void initState() {
@@ -218,43 +221,62 @@ class _HomeScreenState extends State<HomeScreen>
     }
     final wide = _isWide;
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F6FF),
-      body: SafeArea(
-        child: wide
-            ? _buildWideLayout(app)
-            : (_bottomIndex == 0
-                  ? _buildHomeBody(app)
-                  : _buildProfileBody(app)),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: Stack(
+        children: [
+          SafeArea(
+            child: wide
+                ? _buildWideLayout(app)
+                : switch (_bottomIndex) {
+                    1 => const SettingsBody(),
+                    2 => _buildProfileBody(app),
+                    _ => _buildHomeBody(app),
+                  },
+          ),
+          // Banner ala Telegram: pesan baru masuk di room lain.
+          if (app.banner != null)
+            _NewMessageBanner(
+              key: ValueKey(
+                '${app.banner!['roomId']}-${app.banner!['text']}',
+              ),
+              banner: app.banner!,
+              onClose: () => app.clearBanner(),
+              onOpen: () {
+                final roomId = app.banner!['roomId'];
+                final match = app.rooms
+                    .where((r) => r.id == roomId)
+                    .toList();
+                app.clearBanner();
+                if (match.isNotEmpty) _openRoom(match.first);
+              },
+            ),
+        ],
       ),
-      // FAB hanya di layar kecil; di desktop aksi ada di header.
-      floatingActionButton: (!wide && _bottomIndex == 0)
-          ? (app.isGuest
-                ? FloatingActionButton.extended(
-                    onPressed: _joinDialog,
-                    icon: const Icon(Icons.vpn_key_outlined),
-                    label: const Text('Gabung Kode'),
-                  )
-                : FloatingActionButton.extended(
-                    onPressed: _createDialog,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Buat Room'),
-                  ))
-          : null,
+      // FAB hanya di layar kecil dan di tab beranda; di desktop aksi ada di header.
+      floatingActionButton:
+          (!wide && _bottomIndex == 0) ? _buildSpeedDial(app) : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _bottomIndex,
         onDestinationSelected: (i) => setState(() => _bottomIndex = i),
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).colorScheme.surface,
         elevation: 8,
-        indicatorColor: const Color(0xFFDBEAFE),
+        indicatorColor: Theme.of(
+          context,
+        ).colorScheme.primary.withValues(alpha: 0.15),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home, color: Color(0xFF1E3A8A)),
+            selectedIcon: Icon(Icons.home),
             label: 'Beranda',
           ),
           NavigationDestination(
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings),
+            label: 'Pengaturan',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person, color: Color(0xFF1E3A8A)),
+            selectedIcon: Icon(Icons.person),
             label: 'Profil',
           ),
         ],
@@ -262,13 +284,129 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // FAB ala WA: ikon bulat saja, ditekan muncul menu animasi pilihan aksi.
+  Widget _buildSpeedDial(AppState app) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        IgnorePointer(
+          ignoring: !_fabOpen,
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 180),
+            opacity: _fabOpen ? 1 : 0,
+            child: AnimatedScale(
+              duration: const Duration(milliseconds: 180),
+              scale: _fabOpen ? 1 : 0.6,
+              alignment: Alignment.bottomRight,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (!app.isGuest)
+                    _dialItem(
+                      icon: Icons.add_comment_outlined,
+                      label: 'Buat Room',
+                      onTap: () {
+                        setState(() => _fabOpen = false);
+                        _createDialog();
+                      },
+                    ),
+                  const SizedBox(height: 10),
+                  _dialItem(
+                    icon: Icons.vpn_key_outlined,
+                    label: 'Gabung dengan Kode',
+                    onTap: () {
+                      setState(() => _fabOpen = false);
+                      _joinDialog();
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        FloatingActionButton(
+          heroTag: 'fab-utama',
+          onPressed: () => setState(() => _fabOpen = !_fabOpen),
+          backgroundColor: const Color(0xFF1E3A8A),
+          child: AnimatedRotation(
+            turns: _fabOpen ? 0.125 : 0,
+            duration: const Duration(milliseconds: 180),
+            child: Icon(
+              _fabOpen ? Icons.close : Icons.add_comment_outlined,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _dialItem({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.15),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        FloatingActionButton.small(
+          heroTag: 'dial-$label',
+          onPressed: onTap,
+          backgroundColor: Theme.of(context).colorScheme.surface,
+          foregroundColor: Theme.of(context).colorScheme.primary,
+          child: Icon(icon),
+        ),
+      ],
+    );
+  }
+
   // ── Layout lebar: sidebar room + panel chat ──
   Widget _buildWideLayout(AppState app) {
-    if (_bottomIndex == 1) return _buildProfileBody(app);
+    if (_bottomIndex == 1) return const SettingsBody();
+    if (_bottomIndex == 2) return _buildProfileBody(app);
+    final gelap = Theme.of(context).brightness == Brightness.dark;
+    final panelBg = gelap
+        ? UniTalkChatTheme.darkSidebar
+        : UniTalkChatTheme.lightSidebar;
+    final garis = gelap
+        ? UniTalkChatTheme.darkBorder
+        : UniTalkChatTheme.lightBorder;
     return Row(
       children: [
-        SizedBox(width: 400, child: _buildSidebar(app)),
-        const VerticalDivider(width: 1, thickness: 1),
+        Container(
+          width: 400,
+          decoration: BoxDecoration(
+            color: panelBg,
+            border: Border(right: BorderSide(color: garis)),
+          ),
+          child: _buildSidebar(app),
+        ),
         Expanded(child: _buildChatPane(app)),
       ],
     );
@@ -327,9 +465,22 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildHeader(AppState app) {
+    final gelap = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-      color: const Color(0xFF1E3A8A),
+      decoration: BoxDecoration(
+        color: gelap ? UniTalkChatTheme.darkHeader : null,
+        gradient: gelap
+            ? null
+            : const LinearGradient(
+                colors: [Color(0xFF1E3A8A), Color(0xFF2563EB)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+        border: gelap
+            ? const Border(bottom: BorderSide(color: UniTalkChatTheme.darkBorder))
+            : null,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -383,12 +534,14 @@ class _HomeScreenState extends State<HomeScreen>
                   ],
                 ),
               ),
-              IconButton(
-                tooltip: 'Gabung dengan kode',
-                icon: const Icon(Icons.vpn_key_outlined, color: Colors.white),
-                onPressed: _joinDialog,
-              ),
-              if (!app.isGuest)
+              // Di desktop FAB tidak ada, aksi balik ke header.
+              if (_isWide)
+                IconButton(
+                  tooltip: 'Gabung dengan kode',
+                  icon: const Icon(Icons.vpn_key_outlined, color: Colors.white),
+                  onPressed: _joinDialog,
+                ),
+              if (_isWide && !app.isGuest)
                 IconButton(
                   tooltip: 'Buat room',
                   icon: const Icon(
@@ -429,13 +582,9 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                       onPressed: () =>
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: const Text('3 notifikasi baru'),
+                            const SnackBar(
+                              content: Text('3 notifikasi baru'),
                               behavior: SnackBarBehavior.floating,
-                              backgroundColor: const Color(0xFF1E3A8A),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
                             ),
                           ),
                     ),
@@ -536,7 +685,9 @@ class _HomeScreenState extends State<HomeScreen>
             const SizedBox(height: 12),
             Text(
               'Tidak ada room ditemukan',
-              style: TextStyle(color: Colors.grey.shade400),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -547,6 +698,7 @@ class _HomeScreenState extends State<HomeScreen>
       itemCount: rooms.length,
       itemBuilder: (context, i) => _RoomCard(
         room: rooms[i],
+        unread: app.unreadFor(rooms[i].id),
         isGuest: widget.isGuest,
         selected: _isWide && _selectedRoom?.id == rooms[i].id,
         onTap: () => _openRoom(rooms[i]),
@@ -603,64 +755,125 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Flexible(
-                          child: Text(
-                            app.displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
+                        // Nama panjang asli (dari registrasi, bukan alias).
+                        Text(
+                          app.isGuest ? app.displayName : app.realName,
+                          maxLines: 2,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            height: 1.3,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        if (!app.isGuest && app.nim.isNotEmpty)
+                          // NIM fix: sekali diisi saat daftar, tidak bisa diubah.
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.badge_outlined,
+                                  color: Colors.white70,
+                                  size: 14,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'NIM ${app.nim}',
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 12,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        const SizedBox(height: 8),
+                        // Nama tampil (alias) di chat - ini yang bisa diubah.
+                        GestureDetector(
+                          onTap: !app.isGuest
+                              ? () {
+                                  final ctrl = TextEditingController(
+                                    text: app.displayName,
+                                  );
+                                  showDialog(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('Ubah Nama Tampil'),
+                                      content: TextField(
+                                        controller: ctrl,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Nama tampil di chat',
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx),
+                                          child: const Text('Batal'),
+                                        ),
+                                        ElevatedButton(
+                                          onPressed: () {
+                                            if (ctrl.text.trim().isEmpty) {
+                                              return;
+                                            }
+                                            context.read<AppState>().rename(
+                                                  ctrl.text.trim(),
+                                                );
+                                            Navigator.pop(ctx);
+                                          },
+                                          child: const Text('Simpan'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }
+                              : null,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 2,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    app.isGuest
+                                        ? 'Tanpa nama tampil'
+                                        : 'Nama tampil: ${app.displayName}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                                if (!app.isGuest)
+                                  const Icon(
+                                    Icons.edit_outlined,
+                                    color: Colors.white70,
+                                    size: 13,
+                                  ),
+                              ],
                             ),
                           ),
                         ),
-                        if (!app.isGuest)
-                          IconButton(
-                            tooltip: 'Ubah nama',
-                            icon: const Icon(
-                              Icons.edit_outlined,
-                              color: Colors.white70,
-                              size: 18,
-                            ),
-                            onPressed: () {
-                              final ctrl = TextEditingController(
-                                text: app.displayName,
-                              );
-                              showDialog(
-                                context: context,
-                                builder: (ctx) => AlertDialog(
-                                  title: const Text('Ubah Nama Profil'),
-                                  content: TextField(
-                                    controller: ctrl,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Nama tampil',
-                                      border: OutlineInputBorder(),
-                                    ),
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(ctx),
-                                      child: const Text('Batal'),
-                                    ),
-                                    ElevatedButton(
-                                      onPressed: () {
-                                        if (ctrl.text.trim().isEmpty) return;
-                                        context.read<AppState>().rename(
-                                              ctrl.text.trim(),
-                                            );
-                                        Navigator.pop(ctx);
-                                      },
-                                      child: const Text('Simpan'),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
                       ],
                     ),
                     const SizedBox(height: 4),
@@ -773,6 +986,15 @@ class _HomeScreenState extends State<HomeScreen>
                 subtitle: 'Versi 1.0.0',
                 onTap: () => showAboutDialog(
                   context: context,
+                  applicationIcon: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.asset(
+                      'assets/icon/icon.png',
+                      width: 48,
+                      height: 48,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
                   applicationName: 'UniTalk',
                   applicationVersion: '1.0.0',
                   applicationLegalese: 'Kelompok 1 – Pemrograman Perangkat Bergerak, Teknik Informatika UMRAH',
@@ -882,7 +1104,7 @@ class _EmptyChatPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: const Color(0xFFF6F8FC),
+      color: Theme.of(context).scaffoldBackgroundColor,
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -891,22 +1113,22 @@ class _EmptyChatPane extends StatelessWidget {
               width: 88,
               height: 88,
               decoration: BoxDecoration(
-                color: const Color(0xFFE4ECFB),
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(24),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.forum_outlined,
                 size: 42,
-                color: Color(0xFF1E3A8A),
+                color: Theme.of(context).colorScheme.primary,
               ),
             ),
             const SizedBox(height: 20),
-            const Text(
+            Text(
               'Pilih room untuk mulai diskusi',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF0F172A),
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
             const SizedBox(height: 8),
@@ -915,7 +1137,7 @@ class _EmptyChatPane extends StatelessWidget {
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13,
-                color: Colors.grey.shade500,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
                 height: 1.5,
               ),
             ),
@@ -928,15 +1150,17 @@ class _EmptyChatPane extends StatelessWidget {
 
 class _RoomCard extends StatelessWidget {
   final ChatRoom room;
+  final int unread;
   final bool isGuest;
   final bool selected;
   final VoidCallback onTap;
 
   const _RoomCard({
     required this.room,
+    required this.unread,
     required this.isGuest,
+    required this.selected,
     required this.onTap,
-    this.selected = false,
   });
 
   @override
@@ -947,10 +1171,12 @@ class _RoomCard extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: selected ? const Color(0xFFEFF6FF) : Colors.white,
+          color: selected
+              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.08)
+              : Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: selected ? const Color(0xFF1E3A8A) : Colors.transparent,
+            color: selected ? Theme.of(context).colorScheme.primary : Colors.transparent,
             width: 1.5,
           ),
           boxShadow: [
@@ -979,10 +1205,10 @@ class _RoomCard extends StatelessWidget {
                 children: [
                   Text(
                     room.name,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
-                      color: Color(0xFF0F172A),
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                   const SizedBox(height: 3),
@@ -990,7 +1216,10 @@ class _RoomCard extends StatelessWidget {
                     room.lastMessage,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Row(
@@ -1008,7 +1237,7 @@ class _RoomCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 11,
-                            color: Colors.grey.shade400,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
                         ),
                       ),
@@ -1022,10 +1251,13 @@ class _RoomCard extends StatelessWidget {
               children: [
                 Text(
                   room.lastTime,
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 const SizedBox(height: 6),
-                if (room.unreadCount > 0)
+                if (unread > 0)
                   Container(
                     constraints: const BoxConstraints(
                       minWidth: 22,
@@ -1038,7 +1270,7 @@ class _RoomCard extends StatelessWidget {
                     ),
                     child: Center(
                       child: Text(
-                        '${room.unreadCount}',
+                        '$unread',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 10,
@@ -1074,7 +1306,7 @@ class _ProfileMenuItem extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       child: Material(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
         child: ListTile(
@@ -1082,10 +1314,16 @@ class _ProfileMenuItem extends StatelessWidget {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: const Color(0xFFEFF6FF),
+              color: Theme.of(
+                context,
+              ).colorScheme.primary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: const Color(0xFF1E3A8A), size: 20),
+            child: Icon(
+              icon,
+              color: Theme.of(context).colorScheme.primary,
+              size: 20,
+            ),
           ),
           title: Text(
             label,
@@ -1093,10 +1331,115 @@ class _ProfileMenuItem extends StatelessWidget {
           ),
           subtitle: Text(
             subtitle,
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
-          trailing: Icon(Icons.chevron_right, color: Colors.grey.shade300),
+          trailing: Icon(
+            Icons.chevron_right,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
           onTap: onTap,
+        ),
+      ),
+    );
+  }
+}
+
+// Banner ala Telegram: pesan baru masuk di room yang tidak sedang dibuka.
+class _NewMessageBanner extends StatelessWidget {
+  final Map<String, String> banner;
+  final VoidCallback onClose;
+  final VoidCallback onOpen;
+
+  const _NewMessageBanner({
+    super.key,
+    required this.banner,
+    required this.onClose,
+    required this.onOpen,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      // Ikut padding status bar supaya tidak tertutup punch-hole kamera.
+      top: MediaQuery.paddingOf(context).top + 8,
+      left: 8,
+      right: 8,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: -1, end: 0),
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutCubic,
+        builder: (context, v, child) => Transform.translate(
+          offset: Offset(0, v * 90),
+          child: Opacity(opacity: (1 + v).clamp(0, 1), child: child),
+        ),
+        child: Material(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          elevation: 6,
+          shadowColor: Colors.black26,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: onOpen,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Theme.of(context).colorScheme.outline),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      Icons.chat_bubble_rounded,
+                      color: Theme.of(context).colorScheme.primary,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          banner['roomName'] ?? '',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12.5,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          '${banner['sender']}: ${banner['text']}',
+                          style: const TextStyle(fontSize: 12),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.close, size: 16),
+                    color: Colors.grey,
+                    onPressed: onClose,
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
