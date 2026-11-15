@@ -9,6 +9,7 @@ class _MemoryRepo implements AppRepository {
   List<Map<String, dynamic>>? rooms;
   final Map<String, List<Map<String, dynamic>>> messages = {};
   final Map<String, String> accounts = {};
+  final Map<String, String> settings = {};
 
   @override
   Future<void> init() async {}
@@ -31,6 +32,23 @@ class _MemoryRepo implements AppRepository {
   @override
   Future<void> clearSession() async {
     session = null;
+  }
+
+  @override
+  Future<String?> loadSetting(String key) async => settings[key];
+
+  @override
+  Future<void> saveSetting(String key, String value) async {
+    settings[key] = value;
+  }
+
+  @override
+  Future<void> clearAllData() async {
+    session = null;
+    rooms = null;
+    messages.clear();
+    accounts.clear();
+    settings.clear();
   }
 
   @override

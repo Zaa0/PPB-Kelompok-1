@@ -39,6 +39,8 @@ dependencies:
   hive_ce: ^2.23.3
   hive_ce_flutter: ^2.5.0
   http: ^1.6.0
+  flutter_local_notifications: ^23.0.2
+  file_picker: ^13.3.3
 
 dev_dependencies:
   flutter_test:
@@ -50,6 +52,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -61,6 +64,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/icon/icon.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:
@@ -92,3 +98,17 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# Ikon launcher custom (dibuat dengan flutter_launcher_icons)
+flutter_launcher_icons:
+  image_path: "assets/icon/icon.png"
+  android: "launcher_icon"
+  adaptive_icon_background: "assets/icon/icon-background.png"
+  adaptive_icon_foreground: "assets/icon/icon-foreground.png"
+  ios: true
+  remove_alpha_ios: true
+  web:
+    generate: true
+    image_path: "assets/icon/icon.png"
+    background_color: "#1E3A8A"
+    theme_color: "#1E3A8A"

@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# dokumen tim (dibagikan via WA, bukan bagian repo)
+docs/
+.zcode/
