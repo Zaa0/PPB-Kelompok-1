@@ -1,9 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../data/api_client.dart';
+import '../theme/chat_theme.dart';
 import '../models/app_data.dart';
 import '../state/app_state.dart';
 import 'welcome_screen.dart';
@@ -30,14 +33,41 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final TextEditingController _msgCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
   late final AppState _app = context.read<AppState>();
+  int _lastMsgCount = 0;
+  bool _pinnedBottom = true; // sedang di posisi chat paling bawah?
+  bool _sending = false; // pesan sedang dikirim ke server?
+  Uint8List? _attachmentBytes; // lampiran yang siap dikirim
+  String? _attachmentName;
 
   @override
   void initState() {
     super.initState();
-    // Ambil pesan & anggota dari API, lalu polling pesan baru tiap 3 detik.
+    // Ambil pesan & anggota dari API, lalu polling pesan baru tiap 1 detik.
     _app.startPolling(widget.room);
     unawaited(_app.loadMessages(widget.room));
     unawaited(_app.loadMembers(widget.room));
+    _scrollCtrl.addListener(_onScroll);
+  }
+
+  // Pantau posisi user: kalau lagi scroll ke atas, jangan paksa turun.
+  void _onScroll() {
+    if (!_scrollCtrl.hasClients) return;
+    final pos = _scrollCtrl.position;
+    _pinnedBottom = pos.maxScrollExtent - pos.pixels < 120;
+  }
+
+  void _scrollToBottom({bool animate = false}) {
+    if (!_scrollCtrl.hasClients) return;
+    final pos = _scrollCtrl.position;
+    if (animate) {
+      _scrollCtrl.animateTo(
+        pos.maxScrollExtent,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    } else {
+      _scrollCtrl.jumpTo(pos.maxScrollExtent);
+    }
   }
 
   @override
@@ -50,17 +80,46 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   Future<void> _sendMessage() async {
     final text = _msgCtrl.text.trim();
-    if (text.isEmpty) return;
-    await _app.sendMessage(widget.room, text);
+    if ((text.isEmpty && _attachmentBytes == null) || _sending) return;
+    setState(() => _sending = true);
+    final sukses = await _app.sendMessage(
+      widget.room,
+      text,
+      attachmentBytes: _attachmentBytes,
+      attachmentName: _attachmentName,
+    );
     _msgCtrl.clear();
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (_scrollCtrl.hasClients) {
-        _scrollCtrl.animateTo(
-          _scrollCtrl.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
+    if (mounted) {
+      setState(() {
+        _sending = false;
+        _attachmentBytes = null;
+        _attachmentName = null;
+      });
+      if (!sukses) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pesan gagal terkirim, coba lagi')),
         );
       }
+    }
+  }
+
+  Future<void> _pilihLampiran() async {
+    final files = await FilePicker.pickFiles();
+    if (files.isEmpty) return;
+    final f = files.first;
+    final ukuran = await f.length();
+    if (ukuran != null && ukuran > 10 * 1024 * 1024) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ukuran lampiran maksimal 10 MB')),
+      );
+      return;
+    }
+    final bytes = await f.readAsBytes();
+    if (!mounted) return;
+    setState(() {
+      _attachmentBytes = bytes;
+      _attachmentName = f.name;
     });
   }
 
@@ -75,6 +134,26 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
+    final messages = app.messagesFor(widget.room);
+
+    // Auto-scroll ala WA: saat chat dibuka langsung ke pesan terbaru;
+    // pesan baru turun mengikuti kalau kita sedang di posisi paling bawah
+    // (atau pesannya dari kita sendiri); kalau lagi baca chat di atas, tetap.
+    if (messages.length != _lastMsgCount) {
+      final firstLoad = _lastMsgCount == 0;
+      final pesanDariSaya =
+          messages.isNotEmpty && messages.last.isSentBy(app.userId);
+      final adaPesanBaru =
+          messages.length > _lastMsgCount && _lastMsgCount > 0;
+      _lastMsgCount = messages.length;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (firstLoad || pesanDariSaya || (adaPesanBaru && _pinnedBottom)) {
+          _scrollToBottom(animate: pesanDariSaya || adaPesanBaru);
+        }
+      });
+    }
+
     final body = _buildBody(app);
     if (widget.embedded) {
       return Column(
@@ -85,7 +164,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       );
     }
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F6FF),
+      resizeToAvoidBottomInset: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(65),
         child: _buildAppBar(app),
@@ -190,11 +270,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     value: 'Anggota',
                     child: Text('Lihat Anggota'),
                   ),
-                  const PopupMenuItem(value: 'Cari', child: Text('Cari Pesan')),
-                  const PopupMenuItem(
-                    value: 'Mute',
-                    child: Text('Mute Notifikasi'),
-                  ),
+
                   const PopupMenuItem(
                     value: 'Keluar',
                     child: Text(
@@ -281,6 +357,18 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 itemBuilder: (context, i) {
                   final msg = messages[i];
                   final showDate = i == 0;
+                  // Gabung bubble berurutan dari pengirim yang sama:
+                  // nama+avatar hanya di awal grup, jam+centang di akhir grup.
+                  final prev = i > 0 ? messages[i - 1] : null;
+                  final next =
+                      i + 1 < messages.length ? messages[i + 1] : null;
+                  bool jedaTengah(ChatMessage? a, ChatMessage? b) =>
+                      a == null ||
+                      b == null ||
+                      a.senderId != b.senderId ||
+                      b.createdAt.difference(a.createdAt).inMinutes >= 5;
+                  final mulaiGrup = jedaTengah(prev, msg);
+                  final akhirGrup = jedaTengah(msg, next);
                   return Column(
                     children: [
                       if (showDate) const _DateDivider(date: 'Hari ini'),
@@ -293,6 +381,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         child: _MessageBubble(
                           message: msg,
                           isMe: msg.isSentBy(app.userId),
+                          showHeader: mulaiGrup,
+                          showTime: akhirGrup,
                         ),
                       ),
                     ],
@@ -370,7 +460,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     'Menampilkan ${members.length} anggota',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey.shade500,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -465,16 +555,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Widget _buildInputBar() {
+    final border = Theme.of(context).brightness == Brightness.dark
+        ? UniTalkChatTheme.darkBorder
+        : UniTalkChatTheme.lightBorder;
     return Container(
+      // Hanya garis pemisah tipis di atas - field-nya yang diberi kotak
+      // sendiri supaya tidak ada kotak dobel/tumpang tindih.
       decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
+        border: Border(top: BorderSide(color: border)),
       ),
       child: Center(
         child: ConstrainedBox(
@@ -484,40 +572,52 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             child: Row(
               children: [
                 IconButton(
-                  icon: const Icon(
+                  tooltip: 'Lampirkan foto atau dokumen (maks 10 MB)',
+                  icon: Icon(
                     Icons.attach_file_outlined,
-                    color: Color(0xFF64748B),
+                    color: _attachmentBytes != null
+                        ? Theme.of(context).colorScheme.primary
+                        : const Color(0xFF64748B),
                   ),
-                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text('Lampiran file belum tersedia'),
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
+                  onPressed: _pilihLampiran,
                 ),
                 Expanded(
                   child: Container(
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? UniTalkChatTheme.darkInputBg
+                          : Colors.white,
                       borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                      border: Border.all(color: border),
                     ),
                     child: TextField(
                       controller: _msgCtrl,
                       maxLines: null,
                       keyboardType: TextInputType.multiline,
                       textCapitalization: TextCapitalization.sentences,
-                      decoration: const InputDecoration(
+                      onChanged: (v) {
+                        // Di desktop/web: Enter mengirim, Shift+Enter baris baru.
+                        if (v.endsWith('\n') &&
+                            !HardwareKeyboard.instance.isShiftPressed) {
+                          final bersih = v.substring(0, v.length - 1);
+                          _msgCtrl.value = TextEditingValue(
+                            text: bersih,
+                            selection: TextSelection.collapsed(
+                              offset: bersih.length,
+                            ),
+                          );
+                          _sendMessage();
+                        }
+                      },
+                      decoration: InputDecoration(
                         hintText: 'Tulis pesan...',
                         hintStyle: TextStyle(
-                          color: Color(0xFFB0BAC8),
                           fontSize: 14,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurfaceVariant,
                         ),
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(
+                        contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 10,
                         ),
@@ -527,25 +627,55 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                GestureDetector(
-                  onTap: _sendMessage,
-                  child: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Color(0xFF1E3A8A), Color(0xFF3B82F6)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+                // Tombol kirim dinamis ala chat modern: kosong = ikon suara,
+                // ada teks = paper plane; saat mengirim tampil spinner.
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _msgCtrl,
+                  builder: (context, value, _) {
+                    final adaTeks = value.text.trim().isNotEmpty || _sending;
+                    return GestureDetector(
+                      onTap: _sendMessage,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          gradient: adaTeks
+                              ? const LinearGradient(
+                                  colors: [Color(0xFF1E3A8A), Color(0xFF3B82F6)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                )
+                              : null,
+                          color: adaTeks ? null : Colors.grey.shade300,
+                          shape: BoxShape.circle,
+                        ),
+                        child: _sending
+                            ? const Padding(
+                                padding: EdgeInsets.all(11),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 180),
+                                transitionBuilder: (child, anim) =>
+                                    ScaleTransition(scale: anim, child: child),
+                                child: Icon(
+                                  adaTeks
+                                      ? Icons.send_rounded
+                                      : Icons.keyboard_voice_rounded,
+                                  key: ValueKey(adaTeks),
+                                  color: adaTeks
+                                      ? Colors.white
+                                      : Colors.grey.shade500,
+                                  size: 20,
+                                ),
+                              ),
                       ),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.send_rounded,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                  ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -558,7 +688,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Widget _buildGuestBar() {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.06),
@@ -586,9 +716,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: Colors.grey.shade200),
                   ),
-                  child: const Text(
+                  child: Text(
                     'Login untuk mengirim pesan...',
-                    style: TextStyle(color: Color(0xFFB0BAC8), fontSize: 14),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -624,7 +757,13 @@ class _DateDivider extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
         children: [
-          Expanded(child: Divider(color: Colors.grey.shade300)),
+          Expanded(
+            child: Divider(
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Container(
@@ -635,11 +774,20 @@ class _DateDivider extends StatelessWidget {
               ),
               child: Text(
                 date,
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
           ),
-          Expanded(child: Divider(color: Colors.grey.shade300)),
+          Expanded(
+            child: Divider(
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
+            ),
+          ),
         ],
       ),
     );
@@ -649,13 +797,20 @@ class _DateDivider extends StatelessWidget {
 class _MessageBubble extends StatelessWidget {
   final ChatMessage message;
   final bool isMe;
-  const _MessageBubble({required this.message, required this.isMe});
+  final bool showHeader; // tampil avatar + nama (awal grup)
+  final bool showTime; // tampil jam + centang (akhir grup)
+  const _MessageBubble({
+    required this.message,
+    required this.isMe,
+    this.showHeader = true,
+    this.showTime = true,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.only(
-        bottom: 8,
+        bottom: showTime ? 8 : 2,
         left: isMe ? 48 : 0,
         right: isMe ? 0 : 48,
       ),
@@ -666,27 +821,31 @@ class _MessageBubble extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (!isMe) ...[
-            Container(
-              width: 32,
-              height: 32,
-              margin: const EdgeInsets.only(right: 8, bottom: 2),
-              decoration: BoxDecoration(
-                color: colorForSender(
-                  message.senderName,
-                ).withValues(alpha: 0.15),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  message.senderInitial,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: colorForSender(message.senderName),
+            // Slot avatar tetap ada biar bubble lanjutan tetap sejajar.
+            if (showHeader)
+              Container(
+                width: 32,
+                height: 32,
+                margin: const EdgeInsets.only(right: 8, bottom: 2),
+                decoration: BoxDecoration(
+                  color: colorForSender(
+                    message.senderName,
+                  ).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    message.senderInitial,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: colorForSender(message.senderName),
+                    ),
                   ),
                 ),
-              ),
-            ),
+              )
+            else
+              const SizedBox(width: 40),
           ],
           Flexible(
             child: ConstrainedBox(
@@ -696,7 +855,7 @@ class _MessageBubble extends StatelessWidget {
                     ? CrossAxisAlignment.end
                     : CrossAxisAlignment.start,
                 children: [
-                  if (!isMe)
+                  if (!isMe && showHeader)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 3, left: 4),
                       child: Text(
@@ -704,7 +863,9 @@ class _MessageBubble extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
-                          color: colorForSender(message.senderName),
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? UniTalkChatTheme.darkSenderName
+                              : UniTalkChatTheme.lightSenderName,
                         ),
                       ),
                     ),
@@ -714,7 +875,13 @@ class _MessageBubble extends StatelessWidget {
                       vertical: 10,
                     ),
                     decoration: BoxDecoration(
-                      color: isMe ? const Color(0xFF1E3A8A) : Colors.white,
+                      color: isMe
+                          ? (Theme.of(context).brightness == Brightness.dark
+                                ? UniTalkChatTheme.darkBubbleMe
+                                : UniTalkChatTheme.lightBubbleMe)
+                          : (Theme.of(context).brightness == Brightness.dark
+                                ? UniTalkChatTheme.darkBubbleOther
+                                : UniTalkChatTheme.lightBubbleOther),
                       borderRadius: BorderRadius.only(
                         topLeft: const Radius.circular(16),
                         topRight: const Radius.circular(16),
@@ -737,22 +904,47 @@ class _MessageBubble extends StatelessWidget {
                       message.text,
                       style: TextStyle(
                         fontSize: 14,
-                        color: isMe ? Colors.white : const Color(0xFF0F172A),
+                        color: isMe
+                            ? Colors.white
+                            : (Theme.of(context).brightness == Brightness.dark
+                                  ? UniTalkChatTheme.darkTextPrimary
+                                  : UniTalkChatTheme.lightTextPrimary),
                         height: 1.4,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 3),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: Text(
-                      message.timeLabel,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.grey.shade400,
+                  if (showTime) ...[
+                    const SizedBox(height: 3),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            message.timeLabel,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Theme.of(context).brightness ==
+                                      Brightness.dark
+                                  ? UniTalkChatTheme.darkTextSecondary
+                                  : UniTalkChatTheme.lightTextSecondary,
+                            ),
+                          ),
+                          // Centang terkirim: satu = masih lokal, dua = sudah di server.
+                          if (isMe) ...[
+                            const SizedBox(width: 3),
+                            Icon(
+                              message.pending ? Icons.done : Icons.done_all,
+                              size: 12,
+                              color: message.pending
+                                  ? Colors.grey.shade400
+                                  : const Color(0xFF3B82F6),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../data/api_client.dart';
@@ -127,21 +128,13 @@ class _BrandContent extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.3),
-                width: 1.5,
-              ),
-            ),
-            child: const Icon(
-              Icons.chat_rounded,
-              color: Colors.white,
-              size: 42,
+          ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: Image.asset(
+              'assets/icon/icon.png',
+              width: 80,
+              height: 80,
+              fit: BoxFit.cover,
             ),
           ),
           const SizedBox(height: 16),
@@ -314,17 +307,23 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   final _namaCtrl = TextEditingController();
+  final _nimCtrl = TextEditingController();
   bool _isRegister = false;
   bool _obscurePass = true;
   bool _isLoading = false;
 
   Future<void> _doLogin() async {
+    final nim = _nimCtrl.text.trim();
     if (_emailCtrl.text.isEmpty ||
         _passCtrl.text.isEmpty ||
-        (_isRegister && _namaCtrl.text.trim().isEmpty)) {
+        (_isRegister && (_namaCtrl.text.trim().isEmpty || nim.isEmpty))) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Lengkapi nama, email, dan password'),
+          content: Text(
+            _isRegister
+                ? 'Lengkapi nama, NIM, email, dan password'
+                : 'Lengkapi email dan password',
+          ),
           backgroundColor: const Color(0xFFEF4444),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -341,7 +340,12 @@ class _LoginScreenState extends State<LoginScreen> {
       if (app.isOnline && !app.offlineMode) {
         // Mode online: login/daftar beneran lewat API Laravel.
         if (_isRegister) {
-          await app.registerAndStart(_namaCtrl.text.trim(), email, _passCtrl.text);
+          await app.registerAndStart(
+            _namaCtrl.text.trim(),
+            email,
+            _passCtrl.text,
+            nim: nim,
+          );
         } else {
           await app.loginAndStart(email, _passCtrl.text);
         }
@@ -382,10 +386,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final warna = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: warna.surface,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: warna.surface,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios, color: Color(0xFF1E3A8A)),
@@ -415,17 +420,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 // Header
                 Row(
                   children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEFF6FF),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.chat_rounded,
-                        color: Color(0xFF1E3A8A),
-                        size: 26,
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.asset(
+                        'assets/icon/icon.png',
+                        width: 48,
+                        height: 48,
+                        fit: BoxFit.cover,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -452,12 +453,12 @@ class _LoginScreenState extends State<LoginScreen> {
                   ],
                 ),
                 const SizedBox(height: 32),
-                const Text(
+                Text(
                   'Selamat Datang! 👋',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF0F172A),
+                    color: warna.onSurface,
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -468,13 +469,34 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 32),
                 // Nama field (khusus registrasi)
                 if (_isRegister) ...[
-                  _buildLabel('Nama Tampil'),
+                  _buildLabel('Nama Panjang'),
                   const SizedBox(height: 8),
                   TextField(
                     controller: _namaCtrl,
+                    textCapitalization: TextCapitalization.words,
                     decoration: _inputDecoration(
-                      'cth: Budi IF',
+                      'cth: Andrian Yuza Swanda',
                       Icons.person_outline,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildLabel('NIM'),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _nimCtrl,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: _inputDecoration(
+                      'cth: 2401020157',
+                      Icons.badge_outlined,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'NIM tidak bisa diubah setelah mendaftar.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -642,24 +664,25 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildLabel(String text) {
     return Text(
       text,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w600,
-        color: Color(0xFF0F172A),
+        color: Theme.of(context).colorScheme.onSurface,
       ),
     );
   }
 
   InputDecoration _inputDecoration(String hint, IconData icon) {
+    final gelap = Theme.of(context).brightness == Brightness.dark;
     return InputDecoration(
       hintText: hint,
       hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
       prefixIcon: Icon(icon, color: Colors.grey.shade400, size: 20),
       filled: true,
-      fillColor: const Color(0xFFF8FAFC),
+      fillColor: gelap ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade200),
+        borderSide: BorderSide(color: gelap ? Colors.grey.shade800 : Colors.grey.shade200),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -678,6 +701,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _emailCtrl.dispose();
     _passCtrl.dispose();
     _namaCtrl.dispose();
+    _nimCtrl.dispose();
     super.dispose();
   }
 }
