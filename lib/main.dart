@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'data/api_client.dart';
 import 'data/local_repository.dart';
 import 'screens/welcome_screen.dart';
+import 'services/notifications.dart';
 import 'state/app_state.dart';
+import 'theme/chat_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,6 +24,11 @@ Future<AppState> _loadAppState() async {
     await repo.init();
     final app = AppState(repository: repo, api: ApiClient());
     await app.restore();
+    // Layanan notifikasi lokal (Android/Windows) + jalur balas cepat.
+    onQuickReply = (roomId, pesan) {
+      unawaited(app.replyFromNotification(roomId, pesan));
+    };
+    unawaited(initNotifications());
     return app;
   } catch (_) {
     // Kalau penyimpanan lokal gagal (misal browser tanpa IndexedDB),
@@ -56,49 +65,30 @@ class _AppView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF2563EB));
-    return MaterialApp(
-      title: 'UniTalk',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: scheme,
-        useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFF6F8FC),
-        appBarTheme: AppBarTheme(
-          backgroundColor: scheme.surface,
-          foregroundColor: scheme.onSurface,
-          elevation: 0,
-          centerTitle: false,
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: Colors.grey.shade200),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey.shade300),
-          ),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            minimumSize: const Size.fromHeight(48),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        ),
+    final app = context.watch<AppState>();
+    return AnimatedTheme(
+      duration: const Duration(milliseconds: 250),
+      data: Theme.of(context),
+      child: MaterialApp(
+        title: 'UniTalk',
+        debugShowCheckedModeBanner: false,
+        theme: UniTalkChatTheme.lightTheme,
+        darkTheme: UniTalkChatTheme.darkTheme,
+        themeMode: app.themeMode,
+        initialRoute: '/',
+        routes: {
+          '/': (context) => const WelcomeScreen(),
+        },
+        builder: (context, child) {
+          // Transisi pergantian tema berlangsung halus (tanpa kedipan).
+          return AnimatedTheme(
+            data: Theme.of(context),
+            duration: const Duration(milliseconds: 250),
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
       ),
-      initialRoute: '/',
-      routes: {
-        '/': (context) => const WelcomeScreen(),
-      },
     );
+
   }
 }
