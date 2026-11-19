@@ -191,6 +191,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             children: [
               if (!widget.embedded)
                 IconButton(
+                  tooltip: 'Kembali',
                   icon: const Icon(
                     Icons.arrow_back_ios,
                     color: Colors.white,
@@ -238,6 +239,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 ),
               ),
               PopupMenuButton<String>(
+                tooltip: 'Menu room',
                 icon: const Icon(Icons.more_vert, color: Colors.white),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -316,8 +318,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 Expanded(
                   child: Text(
                     widget.room.allowGuest
-                        ? 'Anda dalam mode Guest. Anda tetap bisa mengirim pesan di room ini.'
-                        : 'Anda dalam mode Guest. Login untuk mengirim pesan.',
+                        ? 'Kamu sedang mode Guest. Kamu tetap bisa mengirim pesan di room ini.'
+                        : 'Kamu sedang mode Guest. Login untuk mengirim pesan.',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.orange.shade700,
@@ -633,46 +635,52 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   valueListenable: _msgCtrl,
                   builder: (context, value, _) {
                     final adaTeks = value.text.trim().isNotEmpty || _sending;
-                    return GestureDetector(
-                      onTap: _sendMessage,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          gradient: adaTeks
-                              ? const LinearGradient(
-                                  colors: [Color(0xFF1E3A8A), Color(0xFF3B82F6)],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
+                    return Tooltip(
+                      message: 'Kirim pesan',
+                      child: GestureDetector(
+                        onTap: _sendMessage,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            gradient: adaTeks
+                                ? const LinearGradient(
+                                    colors: [
+                                      Color(0xFF1E3A8A),
+                                      Color(0xFF3B82F6),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  )
+                                : null,
+                            color: adaTeks ? null : Colors.grey.shade300,
+                            shape: BoxShape.circle,
+                          ),
+                          child: _sending
+                              ? const Padding(
+                                  padding: EdgeInsets.all(11),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
                                 )
-                              : null,
-                          color: adaTeks ? null : Colors.grey.shade300,
-                          shape: BoxShape.circle,
+                              : AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 180),
+                                  transitionBuilder: (child, anim) =>
+                                      ScaleTransition(scale: anim, child: child),
+                                  child: Icon(
+                                    adaTeks
+                                        ? Icons.send_rounded
+                                        : Icons.keyboard_voice_rounded,
+                                    key: ValueKey(adaTeks),
+                                    color: adaTeks
+                                        ? Colors.white
+                                        : Colors.grey.shade500,
+                                    size: 20,
+                                  ),
+                                ),
                         ),
-                        child: _sending
-                            ? const Padding(
-                                padding: EdgeInsets.all(11),
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 180),
-                                transitionBuilder: (child, anim) =>
-                                    ScaleTransition(scale: anim, child: child),
-                                child: Icon(
-                                  adaTeks
-                                      ? Icons.send_rounded
-                                      : Icons.keyboard_voice_rounded,
-                                  key: ValueKey(adaTeks),
-                                  color: adaTeks
-                                      ? Colors.white
-                                      : Colors.grey.shade500,
-                                  size: 20,
-                                ),
-                              ),
                       ),
                     );
                   },
@@ -753,31 +761,33 @@ class _DateDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final gelap = Theme.of(context).brightness == Brightness.dark;
+    final bg = gelap
+        ? UniTalkChatTheme.darkInputBg
+        : UniTalkChatTheme.lightBubbleOther;
+    final warnaTeks = gelap
+        ? UniTalkChatTheme.darkTextSecondary
+        : UniTalkChatTheme.lightTextSecondary;
+    final garis = gelap
+        ? UniTalkChatTheme.darkBorder
+        : UniTalkChatTheme.lightBorder;
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
         children: [
-          Expanded(
-            child: Divider(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
-            ),
-          ),
+          Expanded(child: Divider(color: garis)),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.grey.shade200,
+                color: bg,
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: garis),
               ),
               child: Text(
                 date,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+                style: TextStyle(fontSize: 11, color: warnaTeks),
               ),
             ),
           ),

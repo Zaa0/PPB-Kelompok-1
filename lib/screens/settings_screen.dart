@@ -36,27 +36,63 @@ class SettingsBody extends StatelessWidget {
                   children: [
                     const Text('Tema aplikasi'),
                     const SizedBox(height: 10),
-                    SegmentedButton<ThemeMode>(
-                      segments: const [
-                        ButtonSegment(
-                          value: ThemeMode.system,
-                          icon: Icon(Icons.settings_suggest_outlined),
-                          label: Text('Sistem'),
-                        ),
-                        ButtonSegment(
-                          value: ThemeMode.light,
-                          icon: Icon(Icons.light_mode_outlined),
-                          label: Text('Terang'),
-                        ),
-                        ButtonSegment(
-                          value: ThemeMode.dark,
-                          icon: Icon(Icons.dark_mode_outlined),
-                          label: Text('Gelap'),
-                        ),
-                      ],
-                      selected: {app.themeMode},
-                      onSelectionChanged: (pilihan) =>
-                          app.setThemeMode(pilihan.first),
+                    LayoutBuilder(
+                      builder: (context, batas) {
+                        // Di layar sangat sempit ikon disembunyikan supaya
+                        // label tema tidak terpotong menjadi dua baris.
+                        final ringkas = batas.maxWidth < 280;
+                        return SegmentedButton<ThemeMode>(
+                          showSelectedIcon: false,
+                          segments: [
+                            ButtonSegment(
+                              value: ThemeMode.system,
+                              icon: ringkas
+                                  ? null
+                                  : const Icon(
+                                      Icons.settings_suggest_outlined,
+                                      size: 18,
+                                    ),
+                              label: const Text('Sistem'),
+                            ),
+                            ButtonSegment(
+                              value: ThemeMode.light,
+                              icon: ringkas
+                                  ? null
+                                  : const Icon(
+                                      Icons.light_mode_outlined,
+                                      size: 18,
+                                    ),
+                              label: const Text('Terang'),
+                            ),
+                            ButtonSegment(
+                              value: ThemeMode.dark,
+                              icon: ringkas
+                                  ? null
+                                  : const Icon(
+                                      Icons.dark_mode_outlined,
+                                      size: 18,
+                                    ),
+                              label: const Text('Gelap'),
+                            ),
+                          ],
+                          style: ButtonStyle(
+                            padding: WidgetStatePropertyAll(
+                              EdgeInsets.symmetric(
+                                horizontal: ringkas ? 4 : 8,
+                                vertical: 10,
+                              ),
+                            ),
+                            visualDensity: VisualDensity.compact,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            textStyle: const WidgetStatePropertyAll(
+                              TextStyle(fontSize: 12),
+                            ),
+                          ),
+                          selected: {app.themeMode},
+                          onSelectionChanged: (pilihan) =>
+                              app.setThemeMode(pilihan.first),
+                        );
+                      },
                     ),
                   ],
                 ),

@@ -329,6 +329,7 @@ class _HomeScreenState extends State<HomeScreen>
         const SizedBox(height: 12),
         FloatingActionButton(
           heroTag: 'fab-utama',
+          tooltip: _fabOpen ? 'Tutup menu aksi' : 'Menu aksi',
           onPressed: () => setState(() => _fabOpen = !_fabOpen),
           backgroundColor: const Color(0xFF1E3A8A),
           child: AnimatedRotation(
@@ -576,6 +577,7 @@ class _HomeScreenState extends State<HomeScreen>
                 Stack(
                   children: [
                     IconButton(
+                      tooltip: 'Notifikasi',
                       icon: const Icon(
                         Icons.notifications_outlined,
                         color: Colors.white,
@@ -655,9 +657,10 @@ class _HomeScreenState extends State<HomeScreen>
             indicatorWeight: 3,
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white60,
+            labelPadding: const EdgeInsets.symmetric(horizontal: 6),
             labelStyle: const TextStyle(
               fontWeight: FontWeight.bold,
-              fontSize: 13,
+              fontSize: 12,
             ),
             tabs: const [
               Tab(text: 'Mata Kuliah'),
@@ -928,7 +931,7 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Login untuk dapat membuat room dan bergabung penuh',
+                              'Login untuk bisa membuat room dan bergabung sepenuhnya',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.orange.shade700,
@@ -1176,7 +1179,9 @@ class _RoomCard extends StatelessWidget {
               : Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: selected ? Theme.of(context).colorScheme.primary : Colors.transparent,
+            color: selected
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).colorScheme.outline,
             width: 1.5,
           ),
           boxShadow: [
