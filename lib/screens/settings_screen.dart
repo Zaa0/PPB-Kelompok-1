@@ -40,20 +40,30 @@ class SettingsBody extends StatelessWidget {
                       segments: const [
                         ButtonSegment(
                           value: ThemeMode.system,
-                          icon: Icon(Icons.settings_suggest_outlined),
+                          icon: Icon(Icons.settings_suggest_outlined, size: 18),
                           label: Text('Sistem'),
                         ),
                         ButtonSegment(
                           value: ThemeMode.light,
-                          icon: Icon(Icons.light_mode_outlined),
+                          icon: Icon(Icons.light_mode_outlined, size: 18),
                           label: Text('Terang'),
                         ),
                         ButtonSegment(
                           value: ThemeMode.dark,
-                          icon: Icon(Icons.dark_mode_outlined),
+                          icon: Icon(Icons.dark_mode_outlined, size: 18),
                           label: Text('Gelap'),
                         ),
                       ],
+                      style: ButtonStyle(
+                        padding: const WidgetStatePropertyAll(
+                          EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                        ),
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        textStyle: const WidgetStatePropertyAll(
+                          TextStyle(fontSize: 12),
+                        ),
+                      ),
                       selected: {app.themeMode},
                       onSelectionChanged: (pilihan) =>
                           app.setThemeMode(pilihan.first),
