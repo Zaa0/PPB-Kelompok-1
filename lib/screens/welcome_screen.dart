@@ -4,7 +4,15 @@ import 'package:provider/provider.dart';
 
 import '../data/api_client.dart';
 import '../state/app_state.dart';
+import '../theme/chat_theme.dart';
 import 'home_screen.dart';
+
+// Warna aksen brand yang tetap terbaca di latar terang maupun gelap.
+Color _brandInk(BuildContext context) {
+  return Theme.of(context).brightness == Brightness.dark
+      ? UniTalkChatTheme.darkSenderName
+      : UniTalkChatTheme.brandNavy;
+}
 
 // Masuk sebagai guest: online pakai API, offline pakai sesi lokal.
 Future<void> _enterGuest(BuildContext context) async {
@@ -393,7 +401,8 @@ class _LoginScreenState extends State<LoginScreen> {
         backgroundColor: warna.surface,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Color(0xFF1E3A8A)),
+          tooltip: 'Kembali',
+          icon: Icon(Icons.arrow_back_ios, color: _brandInk(context)),
           onPressed: () {
             // Kalau layar login dibuka langsung (misal dari mode guest),
             // tombol kembali diarahkan ke halaman welcome.
@@ -430,7 +439,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    const Column(
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
@@ -438,14 +447,14 @@ class _LoginScreenState extends State<LoginScreen> {
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF1E3A8A),
+                            color: _brandInk(context),
                           ),
                         ),
                         Text(
                           'Login Akun Mahasiswa',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Color(0xFF64748B),
+                            color: warna.onSurfaceVariant,
                           ),
                         ),
                       ],
@@ -464,7 +473,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 6),
                 Text(
                   'Masuk untuk bergabung dengan diskusi mahasiswa',
-                  style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+                  style: TextStyle(fontSize: 14, color: warna.onSurfaceVariant),
                 ),
                 const SizedBox(height: 32),
                 // Nama field (khusus registrasi)
@@ -551,10 +560,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ),
-                    child: const Text(
+                    child: Text(
                       'Lupa Password?',
                       style: TextStyle(
-                        color: Color(0xFF1E3A8A),
+                        color: _brandInk(context),
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -599,8 +608,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     _isRegister
                         ? 'Sudah punya akun? Masuk'
                         : 'Belum punya akun? Daftar',
-                    style: const TextStyle(
-                      color: Color(0xFF1E3A8A),
+                    style: TextStyle(
+                      color: _brandInk(context),
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -609,18 +618,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 // Divider
                 Row(
                   children: [
-                    Expanded(child: Divider(color: Colors.grey.shade300)),
+                    Expanded(child: Divider(color: warna.outline)),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: Text(
                         'atau',
                         style: TextStyle(
-                          color: Colors.grey.shade400,
+                          color: warna.onSurfaceVariant,
                           fontSize: 13,
                         ),
                       ),
                     ),
-                    Expanded(child: Divider(color: Colors.grey.shade300)),
+                    Expanded(child: Divider(color: warna.outline)),
                   ],
                 ),
                 const SizedBox(height: 20),
@@ -635,8 +644,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       style: TextStyle(fontWeight: FontWeight.w600),
                     ),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF64748B),
-                      side: BorderSide(color: Colors.grey.shade300),
+                      foregroundColor: warna.onSurfaceVariant,
+                      side: BorderSide(color: warna.outline),
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),
@@ -649,7 +658,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Text(
                     'Mode guest dapat melihat chat dan mengirim pesan hanya di room yang mengizinkan tamu',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: warna.onSurfaceVariant,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 32),
@@ -674,6 +686,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   InputDecoration _inputDecoration(String hint, IconData icon) {
     final gelap = Theme.of(context).brightness == Brightness.dark;
+    final garis = gelap
+        ? UniTalkChatTheme.darkBorder
+        : UniTalkChatTheme.lightBorder;
     return InputDecoration(
       hintText: hint,
       hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
@@ -682,15 +697,15 @@ class _LoginScreenState extends State<LoginScreen> {
       fillColor: gelap ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: gelap ? Colors.grey.shade800 : Colors.grey.shade200),
+        borderSide: BorderSide(color: garis),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade200),
+        borderSide: BorderSide(color: garis),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF1E3A8A), width: 1.5),
+        borderSide: BorderSide(color: _brandInk(context), width: 1.5),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     );
