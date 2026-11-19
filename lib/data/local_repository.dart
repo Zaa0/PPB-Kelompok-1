@@ -164,7 +164,9 @@ class LocalRepository implements AppRepository {
 
   static const _settingTheme = 'unitalk_theme';
   static const _settingNotif = 'unitalk_notif';
+  static const _settingServer = 'unitalk_server';
 
   static const themeKey = _settingTheme;
   static const notifKey = _settingNotif;
+  static const serverKey = _settingServer;
 }

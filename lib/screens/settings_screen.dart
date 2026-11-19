@@ -113,6 +113,23 @@ class SettingsBody extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
+            _judul(context, 'Server & Jaringan'),
+            Card(
+              margin: EdgeInsets.zero,
+              child: ListTile(
+                leading: const Icon(Icons.dns_outlined),
+                title: const Text('Alamat server'),
+                subtitle: Text(
+                  app.serverUrl,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.edit_outlined, size: 18),
+                onTap: () => _ubahServer(context, app),
+              ),
+            ),
+            const SizedBox(height: 16),
             _judul(context, 'Privasi & Keamanan'),
             Card(
               margin: EdgeInsets.zero,
@@ -183,6 +200,63 @@ class SettingsBody extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  // Dialog ubah alamat server: cukup tulis IP laptop (atau alamat penuh).
+  // Setelah berhasil, user diarahkan login ulang ke server baru.
+  Future<void> _ubahServer(BuildContext context, AppState app) async {
+    final ctrl = TextEditingController(text: app.serverUrl);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Alamat Server'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Tulis alamat laptop yang menjalankan backend, contoh: '
+              '192.168.43.100 (cukup IP-nya saja).',
+              style: TextStyle(fontSize: 12.5),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                hintText: '192.168.101.59',
+                prefixText: 'http://',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final sukses = await app.setServerUrl(ctrl.text);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            sukses
+                ? 'Server diganti. Silakan login ulang.'
+                : 'Alamat tidak valid.',
+          ),
+        ),
+      );
+    }
   }
 
   Widget _judul(BuildContext context, String teks) {

@@ -20,7 +20,9 @@ import '../services/notifications.dart';
 //    cache lokal dengan data dummy, persis perilaku versi mock.
 class AppState extends ChangeNotifier {
   final AppRepository? _repo;
-  final ApiClient? _api;
+  // Bukan final: bisa dibuat ulang saat user mengganti alamat server
+  // di Pengaturan (misal IP laptop berubah di WiFi kampus).
+  ApiClient? _api;
 
   // Nama parameter publik dipakai agar pemanggil mudah dibaca; field tetap privat.
   AppState({AppRepository? repository, ApiClient? api})
@@ -38,6 +40,8 @@ class AppState extends ChangeNotifier {
   bool get hasSession => _hasSession;
   bool get isGuest => _isGuest;
   bool get isOnline => _api != null;
+  // Alamat server yang sedang dipakai (untuk tampil di Pengaturan).
+  String get serverUrl => _api?.baseUrl ?? '-';
   String get userId => _currentUserId;
   String get displayName => _displayName;
   String get realName => _realName;
@@ -86,6 +90,33 @@ class AppState extends ChangeNotifier {
     _notifEnabled = aktif;
     unawaited(_repo?.saveSetting(LocalRepository.notifKey, aktif ? '1' : '0'));
     notifyListeners();
+  }
+
+  // Ganti alamat server (misal IP laptop berubah di WiFi kampus).
+  // Return false bila alamat tidak valid. Sesi lama diakhiri supaya
+  // user login ulang ke server baru.
+  Future<bool> setServerUrl(String url) async {
+    var u = url.trim();
+    if (u.isEmpty) return false;
+    if (!u.startsWith('http://') && !u.startsWith('https://')) {
+      u = 'http://$u';
+    }
+    while (u.endsWith('/')) {
+      u = u.substring(0, u.length - 1);
+    }
+    if (!u.endsWith('/api')) u = '$u/api';
+    if (Uri.tryParse(u) == null) return false;
+
+    _api = ApiClient(baseUrl: u);
+    unawaited(_repo?.saveSetting(LocalRepository.serverKey, u));
+    _hasSession = false;
+    _isGuest = false;
+    _token = null;
+    stopPolling();
+    _offline = false;
+    unawaited(_repo?.clearSession());
+    notifyListeners();
+    return true;
   }
 
   void clearUnread(String roomId) {
@@ -146,6 +177,13 @@ class AppState extends ChangeNotifier {
     final notif = await repo.loadSetting(LocalRepository.notifKey);
     if (notif != null) _notifEnabled = notif == '1';
 
+    // Alamat server tersimpan (dipakai saat IP laptop berubah, misal
+    // pindah WiFi di kampus) - buat ulang ApiClient dengan alamat itu.
+    final server = await repo.loadSetting(LocalRepository.serverKey);
+    if (server != null && server.isNotEmpty && _api != null) {
+      _api = ApiClient(baseUrl: server);
+    }
+
     // Sesi online divalidasi di background: kalau token masih valid,
     // data langsung di-refresh dari API.
     if (_api != null && _token != null) {
@@ -175,7 +213,9 @@ class AppState extends ChangeNotifier {
     _roomsTimer?.cancel();
     if (_api == null || _token == null) return;
     _roomsTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (_useApi && hasSession) {
+      // Tetap coba walau sempat offline: begitu server hidup lagi,
+      // daftar room dan status koneksi pulih otomatis (BUG-01).
+      if (_token != null && hasSession) {
         unawaited(refreshRooms(silent: true));
       }
     });
@@ -222,7 +262,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> startGuestSession() async {
     if (_api != null && !_offline) {
-      final res = await _api.guest();
+      final res = await _api!.guest();
       _applyAuth(res);
       await refreshRooms(silent: true);
     } else {
@@ -271,7 +311,7 @@ class AppState extends ChangeNotifier {
   Future<void> logout() async {
     if (_api != null && _token != null) {
       try {
-        await _api.logout(_token!);
+        await _api!.logout(_token!);
       } on ApiException {
         // Token sudah mati / server mati — tetap bersihkan lokal.
       }
@@ -330,7 +370,7 @@ class AppState extends ChangeNotifier {
     }
     var berubah = false;
     try {
-      final list = await _api.fetchRooms(_token!);
+      final list = await _api!.fetchRooms(_token!);
       // Perf: silent refresh tidak memancing rebuild kalau tidak ada yang
       // berubah (sig = gabungan identitas tiap room dari server).
       final sig = list
@@ -529,7 +569,8 @@ class AppState extends ChangeNotifier {
         id: 'm${DateTime.now().millisecondsSinceEpoch}-${_seq++}',
         senderId: userId,
         senderName: _displayName,
-        text: t,
+        // Isi teks cadangan supaya bubble lampiran offline tidak kosong.
+        text: t.isEmpty ? teksPesan : t,
         createdAt: DateTime.now(),
         pending: true,
       ),
@@ -580,7 +621,7 @@ class AppState extends ChangeNotifier {
     if (_api == null || _token == null || _messagesByRoom[roomId] == null) return;
     try {
       final after = _lastMessageId[roomId];
-      final fresh = await _api.fetchMessages(_token!, roomId, after: after);
+      final fresh = await _api!.fetchMessages(_token!, roomId, after: after);
       if (fresh.isEmpty) return;
       final list = _messagesByRoom[roomId]!;
       final ada = list.map((m) => m.id).toSet();
