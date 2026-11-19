@@ -7,6 +7,7 @@ use App\Models\Message;
 use App\Models\Room;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class MessageController extends Controller
 {
@@ -47,9 +48,11 @@ class MessageController extends Controller
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $attachmentPath = $file->store('attachments', 'public');
+            // Simpan dengan ekstensi asli supaya is_image terdeteksi dari path.
+            $ext = strtolower($file->getClientOriginalExtension() ?: 'bin');
+            $attachmentPath = $file->storeAs('attachments', uniqid() . '.' . $ext, 'public');
             $attachmentName = $file->getClientOriginalName();
-            $isImage = str_starts_with($file->getMimeType() ?? '', 'image/');
+            $isImage = str_starts_with($file->getClientMimeType() ?? '', 'image/');
         }
 
         $message = $room->messages()->create([
@@ -92,6 +95,10 @@ class MessageController extends Controller
                 ? '/attachments/' . $m->attachment_path
                 : null,
             'attachment_name' => $m->attachment_name,
+            // Ukuran file asli (byte) untuk kartu lampiran "PDF • 10 kB".
+            'attachment_size' => $m->attachment_path && Storage::disk('public')->exists($m->attachment_path)
+                ? Storage::disk('public')->size($m->attachment_path)
+                : null,
             'is_image' => $isImage,
             'created_at' => $m->created_at?->toIso8601String(),
         ];

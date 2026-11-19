@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -9,6 +11,14 @@ import '../data/api_client.dart';
 import '../theme/chat_theme.dart';
 import '../models/app_data.dart';
 import '../state/app_state.dart';
+import '../services/attachment_opener.dart';
+import '../services/voice_recorder.dart';
+import '../utils/attachment_kind.dart';
+import '../widgets/attachment_card.dart';
+import '../widgets/voice_note.dart';
+import 'attachment_preview_screen.dart';
+import 'attachment_viewer_screen.dart';
+import 'video_player_screen.dart';
 import 'welcome_screen.dart';
 
 class ChatRoomScreen extends StatefulWidget {
@@ -38,6 +48,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   bool _sending = false; // pesan sedang dikirim ke server?
   Uint8List? _attachmentBytes; // lampiran yang siap dikirim
   String? _attachmentName;
+  // Voice note: rekam langsung dari tombol mikrofon di bar input.
+  final VoiceRecorder _recorder = VoiceRecorder();
+  bool _merekam = false;
+  int _rekamDetik = 0;
+  Timer? _rekamTimer;
 
   @override
   void initState() {
@@ -75,6 +90,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _app.stopPolling();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
+    _rekamTimer?.cancel();
+    _recorder.buang();
     super.dispose();
   }
 
@@ -103,6 +120,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  // Lampiran selalu lewat layar preview dulu (ala WhatsApp): file tampil
+  // (gambar/video langsung, dokumen kartu), user menulis pesan, lalu Kirim.
   Future<void> _pilihLampiran() async {
     final files = await FilePicker.pickFiles();
     if (files.isEmpty) return;
@@ -117,10 +136,87 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
     final bytes = await f.readAsBytes();
     if (!mounted) return;
+
+    final caption = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => AttachmentPreviewScreen(bytes: bytes, fileName: f.name),
+      ),
+    );
+    if (caption == null || !mounted) return; // batal di layar preview
+
+    setState(() => _sending = true);
+    final sukses = await _app.sendMessage(
+      widget.room,
+      caption.trim(),
+      attachmentBytes: bytes,
+      attachmentName: f.name,
+    );
+    if (mounted) {
+      setState(() => _sending = false);
+      if (!sukses) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pesan gagal terkirim, coba lagi')),
+        );
+      }
+    }
+  }
+
+  // ── Voice note ──
+
+  Future<void> _mulaiRekam() async {
+    final ok = await _recorder.mulai();
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Izin mikrofon ditolak atau tidak tersedia')),
+      );
+      return;
+    }
     setState(() {
-      _attachmentBytes = bytes;
-      _attachmentName = f.name;
+      _merekam = true;
+      _rekamDetik = 0;
     });
+    _rekamTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _rekamDetik++);
+    });
+  }
+
+  Future<void> _selesaiRekam() async {
+    _rekamTimer?.cancel();
+    setState(() => _merekam = false);
+    final hasil = await _recorder.selesai();
+    if (!mounted) return;
+    if (hasil == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Voice note gagal direkam')),
+      );
+      return;
+    }
+    final (bytes, detik) = hasil;
+    final nama =
+        'vn-${DateTime.now().millisecondsSinceEpoch}-$detik-detik.m4a';
+    setState(() => _sending = true);
+    final sukses = await _app.sendMessage(
+      widget.room,
+      '',
+      attachmentBytes: bytes,
+      attachmentName: nama,
+    );
+    if (mounted) {
+      setState(() => _sending = false);
+      if (!sukses) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pesan gagal terkirim, coba lagi')),
+        );
+      }
+    }
+  }
+
+  Future<void> _batalRekam() async {
+    _rekamTimer?.cancel();
+    setState(() => _merekam = false);
+    await _recorder.batal();
   }
 
   // Guest diarahkan ke layar login, bukan sekadar kembali.
@@ -560,6 +656,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final border = Theme.of(context).brightness == Brightness.dark
         ? UniTalkChatTheme.darkBorder
         : UniTalkChatTheme.lightBorder;
+    // Sedang merekam voice note: bar input diganti bar rekam ala WA.
+    if (_merekam) return _buildRekamBar(border);
     return Container(
       // Hanya garis pemisah tipis di atas - field-nya yang diberi kotak
       // sendiri supaya tidak ada kotak dobel/tumpang tindih.
@@ -635,10 +733,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   valueListenable: _msgCtrl,
                   builder: (context, value, _) {
                     final adaTeks = value.text.trim().isNotEmpty || _sending;
+                    // Kosong: tombol jadi mikrofon (rekam voice note) -
+                    // hanya di HP; di desktop/web tetap tombol kirim.
+                    final bisaRekam = !kIsWeb &&
+                        (defaultTargetPlatform == TargetPlatform.android ||
+                            defaultTargetPlatform == TargetPlatform.iOS);
                     return Tooltip(
-                      message: 'Kirim pesan',
+                      message: adaTeks ? 'Kirim pesan' : 'Rekam voice note',
                       child: GestureDetector(
-                        onTap: _sendMessage,
+                        onTap: adaTeks || !bisaRekam
+                            ? _sendMessage
+                            : _mulaiRekam,
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 200),
                           width: 44,
@@ -684,6 +789,83 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       ),
                     );
                   },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Bar rekam voice note: timer merah + batal + kirim.
+  Widget _buildRekamBar(Color border) {
+    final durasi =
+        '${(_rekamDetik ~/ 60).toString().padLeft(1, '0')}:${(_rekamDetik % 60).toString().padLeft(2, '0')}';
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: border)),
+      ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 900),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: 'Batal',
+                  icon: const Icon(Icons.close, color: Color(0xFFEF4444)),
+                  onPressed: _batalRekam,
+                ),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? UniTalkChatTheme.darkInputBg
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: border),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.mic,
+                            color: Colors.red.withValues(
+                                alpha: 0.6 + 0.4 * (_rekamDetik % 2)),
+                            size: 20),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Merekam... $durasi',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: _selesaiRekam,
+                  child: Tooltip(
+                    message: 'Kirim voice note',
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF1E3A8A), Color(0xFF3B82F6)],
+                        ),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.send_rounded,
+                          color: Colors.white, size: 20),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -816,6 +998,167 @@ class _MessageBubble extends StatelessWidget {
     this.showTime = true,
   });
 
+  // Lampiran dibuka seperti WA: gambar -> viewer layar penuh (bisa zoom
+  // + unduh), dokumen -> langsung diunduh lalu dibuka aplikasi bawaan.
+  void _bukaLampiran(BuildContext context) {
+    final url = message.attachmentUrl;
+    if (url == null) return;
+    if (message.attachmentIsImage) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => AttachmentViewerScreen(
+          url: url,
+          fileName: message.attachmentName ?? 'foto',
+          isImage: true,
+        ),
+      ));
+    } else {
+      AttachmentOpener.downloadAndOpen(url, message.attachmentName ?? 'lampiran')
+          .then((error) {
+        if (error != null && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(error)),
+          );
+        }
+      });
+    }
+  }
+
+  // Kartu lampiran yang filenya belum tersinkron dari server (misal
+  // dikirim saat offline) - tetap tampil informatif, bukan bubble kosong.
+  Widget _kartuLampiranLokal(
+    AttachmentInfo info,
+    Color bg,
+    Color teksUtama,
+    Color teksSekunder,
+    ChatMessage message,
+  ) {
+    return AttachmentDocCard(
+      name: message.attachmentName ??
+          (info.kind == AttachmentKind.audio
+              ? 'Voice note'
+              : 'Lampiran (menunggu sinkron)'),
+      info: info,
+      sizeBytes: message.attachmentSize,
+      background: bg,
+      textPrimary: teksUtama,
+      textSecondary: teksSekunder,
+    );
+  }
+
+  // Render lampiran sesuai jenis file (dideteksi dari nama/ekstensi,
+  // atau dari URL bila nama tidak berekstensi).
+  Widget _lampiranBubble(BuildContext context, ChatMessage message, bool isMe) {
+    final url = message.attachmentUrl;
+    final info = AttachmentInfo.detect(
+      name: message.attachmentName,
+      url: url,
+    );
+    final gelap = Theme.of(context).brightness == Brightness.dark;
+    final bg = isMe
+        ? Colors.white.withValues(alpha: 0.15)
+        : (gelap ? const Color(0xFF16233B) : const Color(0xFFE2E8F0));
+    final teksUtama = isMe
+        ? Colors.white
+        : (gelap
+            ? UniTalkChatTheme.darkTextPrimary
+            : UniTalkChatTheme.lightTextPrimary);
+    final teksSekunder = isMe
+        ? Colors.white.withValues(alpha: 0.75)
+        : (gelap
+            ? UniTalkChatTheme.darkTextSecondary
+            : UniTalkChatTheme.lightTextSecondary);
+    final aksen = isMe
+        ? Colors.white
+        : (gelap
+            ? UniTalkChatTheme.darkSenderName
+            : UniTalkChatTheme.lightSenderName);
+
+    switch (info.kind) {
+      case AttachmentKind.image:
+        return InkWell(
+          onTap: () => _bukaLampiran(context),
+          borderRadius: BorderRadius.circular(14),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Image.network(
+              message.attachmentUrl!,
+              width: 240,
+              fit: BoxFit.cover,
+              loadingBuilder: (context, child, progress) => progress == null
+                  ? child
+                  : Container(
+                      width: 240,
+                      height: 160,
+                      color: bg,
+                      child: const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+              errorBuilder: (_, _, _) => Container(
+                width: 240,
+                padding: const EdgeInsets.all(14),
+                color: bg,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.broken_image_outlined, size: 18),
+                    SizedBox(width: 8),
+                    Text('Lampiran gagal dimuat',
+                        style: TextStyle(fontSize: 12)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      case AttachmentKind.video:
+        if (url == null) return _kartuLampiranLokal(info, bg, teksUtama, teksSekunder, message);
+        return InkWell(
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => VideoPlayerScreen(url: url),
+          )),
+          child: AttachmentVideoCard(
+            url: url,
+            name: message.attachmentName ?? 'video',
+            sizeBytes: message.attachmentSize,
+            background: bg,
+            textPrimary: teksUtama,
+            textSecondary: teksSekunder,
+          ),
+        );
+      case AttachmentKind.audio:
+        // Voice note tanpa URL (pesan offline lama): tampil kartu, bukan
+        // bubble kosong; dengan URL langsung pemutar di dalam bubble.
+        if (url == null) {
+          return _kartuLampiranLokal(info, bg, teksUtama, teksSekunder, message);
+        }
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: VoiceNotePlayer(
+            url: url,
+            color: aksen,
+            waveformColor: teksSekunder.withValues(alpha: 0.5),
+          ),
+        );
+      default:
+        if (url == null) {
+          return _kartuLampiranLokal(info, bg, teksUtama, teksSekunder, message);
+        }
+        return InkWell(
+          onTap: () => _bukaLampiran(context),
+          borderRadius: BorderRadius.circular(10),
+          child: AttachmentDocCard(
+            name: message.attachmentName ?? 'lampiran',
+            info: info,
+            sizeBytes: message.attachmentSize,
+            background: bg,
+            textPrimary: teksUtama,
+            textSecondary: teksSekunder,
+          ),
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -865,6 +1208,13 @@ class _MessageBubble extends StatelessWidget {
                     ? CrossAxisAlignment.end
                     : CrossAxisAlignment.start,
                 children: [
+                  // Foto tampil menonjol di atas bubble (ala WhatsApp);
+                  // lampiran lain (video/dokumen/VN) ikut di DALAM bubble.
+                  if (message.attachmentUrl != null &&
+                      message.attachmentIsImage) ...[
+                    _lampiranBubble(context, message, isMe),
+                    const SizedBox(height: 4),
+                  ],
                   if (!isMe && showHeader)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 3, left: 4),
@@ -879,50 +1229,73 @@ class _MessageBubble extends StatelessWidget {
                         ),
                       ),
                     ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isMe
-                          ? (Theme.of(context).brightness == Brightness.dark
+                  // Bubble utama: lampiran (bukan foto) dan/atau teks.
+                  // Kalau keduanya kosong, bubble tidak digambar sama sekali
+                  // (tidak ada lagi bubble kosong).
+                  if (message.text.trim().isNotEmpty ||
+                      (message.attachmentUrl != null &&
+                          !message.attachmentIsImage))
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isMe
+                            ? (Theme.of(context).brightness ==
+                                    Brightness.dark
                                 ? UniTalkChatTheme.darkBubbleMe
                                 : UniTalkChatTheme.lightBubbleMe)
-                          : (Theme.of(context).brightness == Brightness.dark
+                            : (Theme.of(context).brightness == Brightness.dark
                                 ? UniTalkChatTheme.darkBubbleOther
                                 : UniTalkChatTheme.lightBubbleOther),
-                      borderRadius: BorderRadius.only(
-                        topLeft: const Radius.circular(16),
-                        topRight: const Radius.circular(16),
-                        bottomLeft: isMe
-                            ? const Radius.circular(16)
-                            : const Radius.circular(4),
-                        bottomRight: isMe
-                            ? const Radius.circular(4)
-                            : const Radius.circular(16),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.05),
-                          blurRadius: 4,
-                          offset: const Offset(0, 1),
+                        borderRadius: BorderRadius.only(
+                          topLeft: const Radius.circular(16),
+                          topRight: const Radius.circular(16),
+                          bottomLeft: isMe
+                              ? const Radius.circular(16)
+                              : const Radius.circular(4),
+                          bottomRight: isMe
+                              ? const Radius.circular(4)
+                              : const Radius.circular(16),
                         ),
-                      ],
-                    ),
-                    child: Text(
-                      message.text,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: isMe
-                            ? Colors.white
-                            : (Theme.of(context).brightness == Brightness.dark
-                                  ? UniTalkChatTheme.darkTextPrimary
-                                  : UniTalkChatTheme.lightTextPrimary),
-                        height: 1.4,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (message.attachmentUrl != null &&
+                              !message.attachmentIsImage) ...[
+                            _lampiranBubble(context, message, isMe),
+                          ],
+                          if (message.text.trim().isNotEmpty) ...[
+                            if (message.attachmentUrl != null &&
+                                !message.attachmentIsImage)
+                              const SizedBox(height: 6),
+                            Text(
+                              message.text,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: isMe
+                                    ? Colors.white
+                                    : (Theme.of(context).brightness ==
+                                            Brightness.dark
+                                        ? UniTalkChatTheme.darkTextPrimary
+                                        : UniTalkChatTheme.lightTextPrimary),
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
-                  ),
                   if (showTime) ...[
                     const SizedBox(height: 3),
                     Padding(

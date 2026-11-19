@@ -8,5 +8,10 @@ Route::get('/', fn () => response()->json(['app' => 'UniTalk API', 'status' => '
 
 Route::get('/attachments/{path}', function (string $path) {
     abort_if(str_contains($path, '..'), 400);
-    return Storage::disk('public')->response('attachments/' . $path);
+    // CORS: browser (Flutter web) menolak memuat gambar dari server lain
+    // tanpa header ini - HP tidak terkena karena tidak lewat browser.
+    $response = Storage::disk('public')->response($path);
+    $response->headers->set('Access-Control-Allow-Origin', '*');
+    $response->headers->set('Access-Control-Allow-Headers', 'Origin, Content-Type, Accept');
+    return $response;
 })->where('path', '.*');

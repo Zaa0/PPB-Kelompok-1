@@ -152,10 +152,11 @@ class ChatMessage {
   final String senderName;
   final String text;
   final DateTime createdAt;
-  // Lampiran (foto/dokumen) - opsional.
+  // Lampiran (foto/dokumen/vidio/audio) - opsional.
   final String? attachmentUrl;
   final String? attachmentName;
   final bool attachmentIsImage;
+  final int? attachmentSize; // ukuran file (byte) untuk kartu lampiran
   // true = pesan masih lokal (dikirim saat offline, belum terkonfirmasi server).
   final bool pending;
 
@@ -168,6 +169,7 @@ class ChatMessage {
     this.attachmentUrl,
     this.attachmentName,
     this.attachmentIsImage = false,
+    this.attachmentSize,
     this.pending = false,
   });
 
@@ -192,6 +194,7 @@ class ChatMessage {
     'attachmentUrl': attachmentUrl,
     'attachmentName': attachmentName,
     'attachmentIsImage': attachmentIsImage,
+    'attachmentSize': attachmentSize,
     'pending': pending,
   };
 
@@ -206,6 +209,9 @@ class ChatMessage {
     attachmentUrl: json['attachmentUrl'] as String?,
     attachmentName: json['attachmentName'] as String?,
     attachmentIsImage: (json['attachmentIsImage'] ?? false) as bool,
+    attachmentSize: json['attachmentSize'] == null
+        ? null
+        : (json['attachmentSize'] as num).toInt(),
     pending: (json['pending'] ?? false) as bool,
   );
 }

@@ -61,6 +61,9 @@ class ApiClient {
   final String _base;
   final http.Client _client;
 
+  // Alamat dasar server (dipakai Pengaturan untuk tampilkan/ubah server).
+  String get baseUrl => _base;
+
   static const _timeout = Duration(seconds: 10);
 
   ApiClient({String? baseUrl, http.Client? client})
@@ -297,16 +300,41 @@ class ApiClient {
     );
   }
 
-  ChatMessage _messageFrom(Map<String, dynamic> j) => ChatMessage(
-        id: '${j['id']}',
-        senderId: '${j['sender_id'] ?? ''}',
-        senderName: (j['sender_name'] ?? 'Guest') as String,
-        text: (j['text'] ?? '') as String,
-        // Konversi ke zona waktu lokal supaya jam di bubble konsisten.
-        createdAt:
-            DateTime.tryParse((j['created_at'] ?? '') as String)?.toLocal() ??
-                DateTime.now(),
-      );
+  ChatMessage _messageFrom(Map<String, dynamic> j) {
+    final url = _urlLampiran(j['attachment_url'] as String?);
+    final nama = j['attachment_name'] as String?;
+    return ChatMessage(
+      id: '${j['id']}',
+      senderId: '${j['sender_id'] ?? ''}',
+      senderName: (j['sender_name'] ?? 'Guest') as String,
+      text: (j['text'] ?? '') as String,
+      // URL lampiran dari server relatif (/attachments/..) - tambahkan
+      // alamat server supaya bisa dimuat dari HP maupun web.
+      attachmentUrl: url,
+      // Nama asli file dari server; bila kosong, ambil dari akhiran URL
+      // (misal .../abc.m4a) supaya jenis file tetap dikenali.
+      attachmentName:
+          nama ?? url?.split('?').first.split('/').last,
+      attachmentSize: (j['attachment_size'] as num?)?.toInt(),
+      // Flag foto dari server, atau deteksi dari ekstensi URL.
+      attachmentIsImage: j['is_image'] == true ||
+          (url != null &&
+              const ['.jpg', '.jpeg', '.png', '.gif', '.webp'].any(
+                (ext) => url.toLowerCase().split('?').first.endsWith(ext),
+              )),
+      // Konversi ke zona waktu lokal supaya jam di bubble konsisten.
+      createdAt:
+          DateTime.tryParse((j['created_at'] ?? '') as String)?.toLocal() ??
+              DateTime.now(),
+    );
+  }
+
+  // Ubah path lampiran relatif jadi URL penuh ke server.
+  String? _urlLampiran(String? path) {
+    if (path == null || path.isEmpty) return null;
+    if (path.startsWith('http')) return path;
+    return Uri.parse(_base).origin + path;
+  }
 
   String _shortTime(String? iso) {
     final dt = DateTime.tryParse(iso ?? '')?.toLocal();
