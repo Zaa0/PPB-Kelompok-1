@@ -37,7 +37,7 @@ void main() {
       expect(r.room.lastTime, isNotEmpty);
       expect(r.isMember, isTrue);
       expect(r.isAdmin, isFalse);
-      expect(r.room.icon, iconForCategory('matkul'));
+      expect(r.room.icon, iconForRoomName('Algoritma'));
     });
 
     test('mapping pesan & polling ?after= dipakai di URL', () async {
