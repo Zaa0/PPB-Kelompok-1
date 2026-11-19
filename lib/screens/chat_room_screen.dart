@@ -191,6 +191,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             children: [
               if (!widget.embedded)
                 IconButton(
+                  tooltip: 'Kembali',
                   icon: const Icon(
                     Icons.arrow_back_ios,
                     color: Colors.white,
@@ -238,6 +239,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 ),
               ),
               PopupMenuButton<String>(
+                tooltip: 'Menu room',
                 icon: const Icon(Icons.more_vert, color: Colors.white),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -633,46 +635,52 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   valueListenable: _msgCtrl,
                   builder: (context, value, _) {
                     final adaTeks = value.text.trim().isNotEmpty || _sending;
-                    return GestureDetector(
-                      onTap: _sendMessage,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          gradient: adaTeks
-                              ? const LinearGradient(
-                                  colors: [Color(0xFF1E3A8A), Color(0xFF3B82F6)],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
+                    return Tooltip(
+                      message: 'Kirim pesan',
+                      child: GestureDetector(
+                        onTap: _sendMessage,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            gradient: adaTeks
+                                ? const LinearGradient(
+                                    colors: [
+                                      Color(0xFF1E3A8A),
+                                      Color(0xFF3B82F6),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  )
+                                : null,
+                            color: adaTeks ? null : Colors.grey.shade300,
+                            shape: BoxShape.circle,
+                          ),
+                          child: _sending
+                              ? const Padding(
+                                  padding: EdgeInsets.all(11),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
                                 )
-                              : null,
-                          color: adaTeks ? null : Colors.grey.shade300,
-                          shape: BoxShape.circle,
+                              : AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 180),
+                                  transitionBuilder: (child, anim) =>
+                                      ScaleTransition(scale: anim, child: child),
+                                  child: Icon(
+                                    adaTeks
+                                        ? Icons.send_rounded
+                                        : Icons.keyboard_voice_rounded,
+                                    key: ValueKey(adaTeks),
+                                    color: adaTeks
+                                        ? Colors.white
+                                        : Colors.grey.shade500,
+                                    size: 20,
+                                  ),
+                                ),
                         ),
-                        child: _sending
-                            ? const Padding(
-                                padding: EdgeInsets.all(11),
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 180),
-                                transitionBuilder: (child, anim) =>
-                                    ScaleTransition(scale: anim, child: child),
-                                child: Icon(
-                                  adaTeks
-                                      ? Icons.send_rounded
-                                      : Icons.keyboard_voice_rounded,
-                                  key: ValueKey(adaTeks),
-                                  color: adaTeks
-                                      ? Colors.white
-                                      : Colors.grey.shade500,
-                                  size: 20,
-                                ),
-                              ),
                       ),
                     );
                   },

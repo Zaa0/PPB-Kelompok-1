@@ -329,6 +329,7 @@ class _HomeScreenState extends State<HomeScreen>
         const SizedBox(height: 12),
         FloatingActionButton(
           heroTag: 'fab-utama',
+          tooltip: _fabOpen ? 'Tutup menu aksi' : 'Menu aksi',
           onPressed: () => setState(() => _fabOpen = !_fabOpen),
           backgroundColor: const Color(0xFF1E3A8A),
           child: AnimatedRotation(
@@ -576,6 +577,7 @@ class _HomeScreenState extends State<HomeScreen>
                 Stack(
                   children: [
                     IconButton(
+                      tooltip: 'Notifikasi',
                       icon: const Icon(
                         Icons.notifications_outlined,
                         color: Colors.white,
