@@ -657,9 +657,10 @@ class _HomeScreenState extends State<HomeScreen>
             indicatorWeight: 3,
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white60,
+            labelPadding: const EdgeInsets.symmetric(horizontal: 6),
             labelStyle: const TextStyle(
               fontWeight: FontWeight.bold,
-              fontSize: 13,
+              fontSize: 12,
             ),
             tabs: const [
               Tab(text: 'Mata Kuliah'),
