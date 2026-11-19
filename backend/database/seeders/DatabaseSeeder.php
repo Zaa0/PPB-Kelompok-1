@@ -57,16 +57,16 @@ class DatabaseSeeder extends Seeder
 
         // ── 10 room dummy: [nama, kategori, kode, allowGuest, pembuat] ──
         $rooms = [
-            ['Pemrograman Mobile', 'matkul', 'UT-101', false, $yuza],
-            ['Basis Data', 'matkul', 'UT-102', false, $budi],
-            ['Algoritma & Pemrograman', 'matkul', 'UT-103', false, $sari],
-            ['Kalkulus', 'matkul', 'UT-104', false, $deni],
-            ['BEM Fakultas', 'organisasi', 'UT-201', false, $rina],
-            ['Himpunan Mahasiswa IF', 'organisasi', 'UT-202', false, $budi],
-            ['UKM Robotika', 'organisasi', 'UT-203', false, $yuza],
-            ['Tips & Trik Kuliah', 'topik', 'UT-301', true, $sari],
-            ['Loker & Magang', 'topik', 'UT-302', true, $deni],
-            ['Sharing Tugas Akhir', 'topik', 'UT-303', false, $rina],
+            ['Pemrograman Mobile', 'matkul', 'UT-1001', false, $yuza],
+            ['Basis Data', 'matkul', 'UT-1002', false, $budi],
+            ['Algoritma & Pemrograman', 'matkul', 'UT-1003', false, $sari],
+            ['Kalkulus', 'matkul', 'UT-1004', false, $deni],
+            ['BEM Fakultas', 'organisasi', 'UT-2001', false, $rina],
+            ['Himpunan Mahasiswa IF', 'organisasi', 'UT-2002', false, $budi],
+            ['UKM Robotika', 'organisasi', 'UT-2003', false, $yuza],
+            ['Tips & Trik Kuliah', 'topik', 'UT-3001', true, $sari],
+            ['Loker & Magang', 'topik', 'UT-3002', true, $deni],
+            ['Sharing Tugas Akhir', 'topik', 'UT-3003', false, $rina],
         ];
 
         foreach ($rooms as [$name, $kategori, $kode, $allowGuest, $pembuat]) {
