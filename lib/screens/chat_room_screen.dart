@@ -761,31 +761,33 @@ class _DateDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final gelap = Theme.of(context).brightness == Brightness.dark;
+    final bg = gelap
+        ? UniTalkChatTheme.darkInputBg
+        : UniTalkChatTheme.lightBubbleOther;
+    final warnaTeks = gelap
+        ? UniTalkChatTheme.darkTextSecondary
+        : UniTalkChatTheme.lightTextSecondary;
+    final garis = gelap
+        ? UniTalkChatTheme.darkBorder
+        : UniTalkChatTheme.lightBorder;
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
         children: [
-          Expanded(
-            child: Divider(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
-            ),
-          ),
+          Expanded(child: Divider(color: garis)),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.grey.shade200,
+                color: bg,
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: garis),
               ),
               child: Text(
                 date,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+                style: TextStyle(fontSize: 11, color: warnaTeks),
               ),
             ),
           ),
