@@ -931,7 +931,7 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Login untuk dapat membuat room dan bergabung penuh',
+                              'Login untuk bisa membuat room dan bergabung sepenuhnya',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.orange.shade700,

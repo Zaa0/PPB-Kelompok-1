@@ -318,8 +318,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 Expanded(
                   child: Text(
                     widget.room.allowGuest
-                        ? 'Anda dalam mode Guest. Anda tetap bisa mengirim pesan di room ini.'
-                        : 'Anda dalam mode Guest. Login untuk mengirim pesan.',
+                        ? 'Kamu sedang mode Guest. Kamu tetap bisa mengirim pesan di room ini.'
+                        : 'Kamu sedang mode Guest. Login untuk mengirim pesan.',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.orange.shade700,
