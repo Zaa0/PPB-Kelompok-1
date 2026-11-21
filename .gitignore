@@ -51,4 +51,6 @@ app.*.map.json
 docs/*
 !docs/ui-audit.md
 !docs/ui-audit/
+!docs/demo/
+!docs/demo/**
 .zcode/
